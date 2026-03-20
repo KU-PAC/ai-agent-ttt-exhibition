@@ -5,45 +5,34 @@ import logging
 
 from master.application.ai_turn import AITurnProcessor
 from master.application.human_turn import HumanTurnProcessor
-from master.application.ports.ai_strategy_port import AIStrategyPort
-from master.application.ports.robot_port import RobotPort
-from master.application.ports.unity_port import UnityPort
-from master.application.ports.vision_port import VisionPort
-from master.domain.board import Board
+from master.application.ports import ReactionGeneratorPort, RobotPort, UnityPort, VisionPort
+from master.domain.board import AI, BOARD_SIZE, HUMAN, Board
 from master.domain.errors import InvalidGameStateError, MasterError
 from master.domain.game_phase import GamePhase
 from master.domain.game_rule import judge
-from master.domain.models import Emotion, GameResult, Move
-
-__all__ = ["GameManager"]
+from master.domain.models import GameResult, Move, make_fallback_reaction
 
 log = logging.getLogger(__name__)
-
-GAME_OVER_WAIT = 5.0
-
-RESULT_DIALOGUES: dict[GameResult, str] = {
-    GameResult.WIN_HUMAN: "やられました！お見事です！",
-    GameResult.WIN_AI: "やりました！勝ちです！",
-    GameResult.DRAW: "引き分けですね。いい勝負でした！",
-}
 
 
 class GameManager:
     def __init__(
         self,
-        strategy: AIStrategyPort,
         vision: VisionPort,
         robot: RobotPort,
         unity: UnityPort,
         human_turn: HumanTurnProcessor,
         ai_turn: AITurnProcessor,
+        reaction_generator: ReactionGeneratorPort,
+        game_over_wait: float = 5.0,
     ) -> None:
-        self._strategy = strategy
         self._vision = vision
         self._robot = robot
         self._unity = unity
         self._human_turn = human_turn
         self._ai_turn = ai_turn
+        self._reaction_generator = reaction_generator
+        self._game_over_wait = game_over_wait
 
         self._board = Board.initial()
         self._phase = GamePhase.STANDBY
@@ -54,10 +43,6 @@ class GameManager:
     @property
     def phase(self) -> GamePhase:
         return self._phase
-
-    def set_strategy(self, strategy: AIStrategyPort) -> None:
-        self._strategy = strategy
-        self._ai_turn._strategy = strategy
 
     async def start_game(self, first_turn: str) -> None:
         if self._phase != GamePhase.STANDBY:
@@ -104,9 +89,9 @@ class GameManager:
         except asyncio.CancelledError:
             log.info("Game loop cancelled")
             raise
-        except MasterError as e:
+        except Exception as e:
             log.error("Game error: %s", e)
-            await self._execute_reset()
+            await self._handle_error()
 
     async def _run_human_turn(self) -> None:
         self._phase = GamePhase.HUMAN_TURN
@@ -114,7 +99,7 @@ class GameManager:
         board_before = self._board
         self._board, position = await self._human_turn.execute(self._board)
         self._boards_history.append(board_before)
-        self._move_history.append(Move(player=1, position=position))
+        self._move_history.append(Move(player=HUMAN, position=position))
         log.info("Human placed at %d", position)
 
     async def _run_ai_turn(self) -> None:
@@ -122,23 +107,33 @@ class GameManager:
         board_before = self._board
         self._board = await self._ai_turn.execute(self._board, self._move_history)
         position = _find_diff(board_before, self._board)
-        self._boards_history.append(board_before)
-        self._move_history.append(Move(player=2, position=position))
-        log.info("AI placed at %d", position)
+        if position is not None:
+            self._boards_history.append(board_before)
+            self._move_history.append(Move(player=AI, position=position))
+            log.info("AI placed at %d", position)
 
     async def _handle_game_over(self, result: GameResult) -> None:
         self._phase = GamePhase.GAME_OVER
         log.info("Game over: %s", result.value)
 
-        emotion = {
-            GameResult.WIN_HUMAN: Emotion.SORROW,
-            GameResult.WIN_AI: Emotion.JOY,
-            GameResult.DRAW: Emotion.FUN,
-        }.get(result, Emotion.NEUTRAL)
+        try:
+            reaction = await self._reaction_generator.generate_game_over(
+                self._board, result, self._move_history,
+            )
+        except Exception:
+            log.warning("Game over reaction generation failed, using fallback")
+            reaction = make_fallback_reaction()
 
-        dialogue = RESULT_DIALOGUES.get(result, "")
-        await self._unity.play_reaction(emotion, dialogue)
-        await asyncio.sleep(GAME_OVER_WAIT)
+        await self._unity.play_reaction(reaction.emotion, reaction.dialogue)
+        await asyncio.sleep(self._game_over_wait)
+        await self._execute_reset()
+
+    async def _handle_error(self) -> None:
+        log.info("Handling error, sending error state to Unity")
+        try:
+            await self._unity.set_state("error")
+        except Exception:
+            log.warning("Failed to send error state to Unity")
         await self._execute_reset()
 
     async def _execute_reset(self) -> None:
@@ -146,9 +141,12 @@ class GameManager:
         log.info("Executing reset")
         try:
             await self._robot.reset_robot()
-        except MasterError:
+        except Exception:
             log.warning("Robot reset failed, continuing reset")
-        await self._unity.set_state("idle")
+        try:
+            await self._unity.set_state("idle")
+        except Exception:
+            log.warning("Unity idle notification failed, continuing reset")
         self._board = Board.initial()
         self._phase = GamePhase.STANDBY
         self._move_history = []
@@ -161,8 +159,8 @@ class GameManager:
             await self.force_reset()
 
 
-def _find_diff(before: Board, after: Board) -> int:
-    for i in range(9):
+def _find_diff(before: Board, after: Board) -> int | None:
+    for i in range(BOARD_SIZE):
         if before.get(i) != after.get(i):
             return i
-    return -1
+    return None

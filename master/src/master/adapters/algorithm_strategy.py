@@ -1,14 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
-from master.application.ports.ai_strategy_port import AIStrategyPort
-from master.application.ports.reaction_generator_port import ReactionGeneratorPort
+from master.application.ports import AIStrategyPort, ReactionGeneratorPort
 from master.domain.board import Board
 from master.domain.entertaining_ai import select_move
 from master.domain.models import AIDecision, Move, make_fallback_reaction
-
-__all__ = ["AlgorithmStrategy"]
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +26,8 @@ class AlgorithmStrategy(AIStrategyPort):
             reaction = await self._reaction_generator.generate(
                 board, position, move_history,
             )
+        except asyncio.CancelledError:
+            raise
         except Exception:
             log.warning("Reaction generation failed, using fallback")
             reaction = make_fallback_reaction()

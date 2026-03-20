@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-__all__ = ["Board"]
-
 BOARD_SIZE = 9
+EMPTY = 0
+HUMAN = 1
+AI = 2
 
 
 @dataclass(frozen=True)

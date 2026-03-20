@@ -1,31 +1,27 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import TYPE_CHECKING
 
-from master.application.ports.vision_port import VisionPort
+from master.adapters.errors import VisionTimeoutError
+from master.adapters.ws_server import ClientType, WebSocketServer
+from master.application.ports import VisionPort
 from master.domain.board import Board
-from master.domain.errors import VisionTimeoutError
-
-if TYPE_CHECKING:
-    from master.adapters.ws_server import WebSocketServer
-
-__all__ = ["VisionWebSocketAdapter"]
 
 log = logging.getLogger(__name__)
 
-TIMEOUT = 1.0
-MAX_RETRIES = 3
-
 
 class VisionWebSocketAdapter(VisionPort):
-    def __init__(self, ws_server: WebSocketServer) -> None:
+    def __init__(
+        self, ws_server: WebSocketServer,
+        timeout: float = 1.0, max_retries: int = 3,
+    ) -> None:
         self._ws_server = ws_server
+        self._timeout = timeout
+        self._max_retries = max_retries
 
     async def request_board_state(self) -> Board:
-        from master.adapters.ws_server import ClientType
-
-        for attempt in range(1, MAX_RETRIES + 1):
+        for attempt in range(1, self._max_retries + 1):
             conn = self._ws_server.get_client(ClientType.VISION)
             if conn is None:
                 raise VisionTimeoutError("Vision client not connected")
@@ -33,17 +29,13 @@ class VisionWebSocketAdapter(VisionPort):
                 response = await conn.request(
                     {"type": "request_board_state", "payload": {}},
                     response_type="board_state_response",
-                    timeout=TIMEOUT,
+                    timeout=self._timeout,
                 )
                 cells = response["payload"]["board"]
                 return Board.from_list(cells)
             except (TimeoutError, asyncio.TimeoutError):
-                log.warning("Vision timeout (attempt %d/%d)", attempt, MAX_RETRIES)
-                if attempt == MAX_RETRIES:
-                    raise VisionTimeoutError(
-                        f"Vision failed after {MAX_RETRIES} retries"
-                    )
-        raise VisionTimeoutError("Vision unreachable")
+                log.warning("Vision timeout (attempt %d/%d)", attempt, self._max_retries)
+            except (KeyError, TypeError) as e:
+                log.warning("Vision malformed response (attempt %d/%d): %s", attempt, self._max_retries, e)
 
-
-import asyncio  # noqa: E402 — deferred to avoid circular
+        raise VisionTimeoutError(f"Vision failed after {self._max_retries} retries")

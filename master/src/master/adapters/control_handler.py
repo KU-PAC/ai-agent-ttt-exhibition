@@ -3,25 +3,20 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from master.application.game_manager import GameManager
-
-__all__ = ["ControlHandler"]
+from master.adapters.ws_server import GameManagerProtocol
 
 log = logging.getLogger(__name__)
 
 
 class ControlHandler:
     async def handle_message(
-        self, message: dict[str, Any], game_manager: GameManager,
+        self, message: dict[str, Any], game_manager: GameManagerProtocol,
     ) -> dict[str, Any] | None:
         msg_type = message.get("type", "")
         payload = message.get("payload", {})
 
         if msg_type == "start_game":
             first_turn = payload.get("first_turn", "human")
-            ai_strategy = payload.get("ai_strategy")
-            if ai_strategy:
-                log.info("Dynamic strategy switch to: %s", ai_strategy)
             await game_manager.start_game(first_turn)
             return None
 

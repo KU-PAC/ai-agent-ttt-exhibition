@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from master.application.ports.vision_port import VisionPort
+from master.application.ports import VisionPort
 from master.domain.board import Board
 
 

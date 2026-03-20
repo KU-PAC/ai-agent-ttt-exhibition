@@ -2,15 +2,10 @@ from __future__ import annotations
 
 import logging
 
-from master.application.ports.ai_strategy_port import AIStrategyPort
-from master.application.ports.robot_port import RobotPort
-from master.application.ports.unity_port import UnityPort
-from master.application.ports.vision_port import VisionPort
-from master.domain.board import Board
+from master.application.ports import AIStrategyPort, RobotPort, UnityPort, VisionPort
+from master.domain.board import AI, Board
 from master.domain.errors import PlacementError
 from master.domain.models import Move
-
-__all__ = ["AITurnProcessor"]
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +34,7 @@ class AITurnProcessor:
 
         await self._unity.play_reaction(decision.emotion, decision.dialogue)
 
-        result = await self._robot.place_piece(decision.next_move, 2)
+        result = await self._robot.place_piece(decision.next_move, AI)
         if not result.success:
             raise PlacementError(
                 f"Robot failed at position {result.position}: {result.error_detail}"
@@ -48,7 +43,7 @@ class AITurnProcessor:
         return await self._verify_placement(board, decision.next_move)
 
     async def _verify_placement(self, board: Board, position: int) -> Board:
-        expected = board.set(position, 2)
+        expected = board.set(position, AI)
         actual = await self._vision.request_board_state()
         if actual != expected:
             raise PlacementError(

@@ -1,15 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
-from master.application.ports.unity_port import UnityPort
+from master.adapters.ws_server import ClientType, WebSocketServer
+from master.application.ports import UnityPort
 from master.domain.models import Emotion
-
-if TYPE_CHECKING:
-    from master.adapters.ws_server import WebSocketServer
-
-__all__ = ["UnityWebSocketAdapter"]
 
 log = logging.getLogger(__name__)
 
@@ -19,8 +14,6 @@ class UnityWebSocketAdapter(UnityPort):
         self._ws_server = ws_server
 
     async def set_state(self, state: str) -> None:
-        from master.adapters.ws_server import ClientType
-
         conn = self._ws_server.get_client(ClientType.UNITY)
         if conn is None:
             log.warning("Unity not connected, skipping set_state(%s)", state)
@@ -28,8 +21,6 @@ class UnityWebSocketAdapter(UnityPort):
         await conn.send({"type": "set_state", "payload": {"state": state}})
 
     async def play_reaction(self, emotion: Emotion, dialogue: str) -> None:
-        from master.adapters.ws_server import ClientType
-
         conn = self._ws_server.get_client(ClientType.UNITY)
         if conn is None:
             log.warning("Unity not connected, skipping play_reaction")

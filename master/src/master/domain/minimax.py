@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from master.domain.board import Board
+from master.domain.board import AI, HUMAN, Board
 from master.domain.game_rule import check_winner
 
-__all__ = ["ScoredMove", "minimax", "score_all_moves"]
+WIN_SCORE = 10
+WORST_CASE = -100
+BEST_CASE = 100
 
 
 @dataclass(frozen=True)
@@ -18,23 +20,23 @@ class ScoredMove:
 
 def minimax(board: Board, player: int, depth: int = 0) -> int:
     winner = check_winner(board)
-    if winner == 2:
-        return 10 - depth
-    if winner == 1:
-        return depth - 10
+    if winner == AI:
+        return WIN_SCORE - depth
+    if winner == HUMAN:
+        return depth - WIN_SCORE
     if not board.empty_cells():
         return 0
 
-    if player == 2:
-        best = -100
+    if player == AI:
+        best = WORST_CASE
         for cell in board.empty_cells():
-            score = minimax(board.set(cell, 2), 1, depth + 1)
+            score = minimax(board.set(cell, AI), HUMAN, depth + 1)
             best = max(best, score)
         return best
     else:
-        best = 100
+        best = BEST_CASE
         for cell in board.empty_cells():
-            score = minimax(board.set(cell, 1), 2, depth + 1)
+            score = minimax(board.set(cell, HUMAN), AI, depth + 1)
             best = min(best, score)
         return best
 
@@ -48,7 +50,7 @@ def _would_win_next(board: Board, player: int) -> set[int]:
 
 
 def score_all_moves(board: Board, player: int) -> list[ScoredMove]:
-    opponent = 1 if player == 2 else 2
+    opponent = HUMAN if player == AI else AI
     opponent_winning = _would_win_next(board, opponent)
 
     moves: list[ScoredMove] = []
@@ -64,5 +66,5 @@ def score_all_moves(board: Board, player: int) -> list[ScoredMove]:
             is_blocking=is_blocking,
         ))
 
-    moves.sort(key=lambda m: m.score, reverse=(player == 2))
+    moves.sort(key=lambda m: m.score, reverse=(player == AI))
     return moves

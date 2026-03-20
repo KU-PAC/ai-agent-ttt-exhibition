@@ -14,9 +14,8 @@ from master.adapters.ws_server import WebSocketServer
 from master.application.ai_turn import AITurnProcessor
 from master.application.game_manager import GameManager
 from master.application.human_turn import HumanTurnProcessor
-from master.config import load_config
-
-__all__ = ["main"]
+from master.application.ports import LLMClientPort
+from master.config import Config, load_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,39 +24,62 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+def _build_llm_client(config: Config) -> LLMClientPort:
+    if config.llm_provider == "openai":
+        from master.adapters.openai_client import OpenAILLMClient
+        return OpenAILLMClient(api_key=config.llm_api_key, model=config.llm_model)
+    from master.adapters.anthropic_client import AnthropicLLMClient
+    return AnthropicLLMClient(api_key=config.llm_api_key, model=config.llm_model)
+
+
 async def main() -> None:
     config = load_config()
 
     ws_server = WebSocketServer()
 
-    vision = VisionWebSocketAdapter(ws_server)
-    robot = RobotWebSocketAdapter(ws_server)
+    vision = VisionWebSocketAdapter(
+        ws_server,
+        timeout=config.vision_timeout,
+        max_retries=config.vision_max_retries,
+    )
+    robot = RobotWebSocketAdapter(
+        ws_server,
+        placement_timeout=config.robot_timeout,
+    )
     unity = UnityWebSocketAdapter(ws_server)
+
+    llm_client = _build_llm_client(config)
+
+    reaction_generator = LLMReactionAdapter(
+        llm_client=llm_client,
+        max_retries=config.llm_max_retries,
+        timeout=config.llm_timeout,
+    )
 
     if config.ai_strategy == "llm":
         strategy = LLMStrategy(
-            api_key=config.llm_api_key,
-            model=config.llm_model,
+            llm_client=llm_client,
+            max_retries=config.llm_max_retries,
+            timeout=config.llm_timeout,
         )
     else:
-        reaction_generator = LLMReactionAdapter(
-            api_key=config.llm_api_key,
-            model=config.llm_model,
-        )
-        strategy = AlgorithmStrategy(
-            reaction_generator=reaction_generator,
-        )
+        strategy = AlgorithmStrategy(reaction_generator=reaction_generator)
 
-    human_turn = HumanTurnProcessor(vision=vision)
+    human_turn = HumanTurnProcessor(
+        vision=vision,
+        poll_interval=config.poll_interval,
+        stable_count_required=config.stable_count_required,
+    )
     ai_turn = AITurnProcessor(
         strategy=strategy, robot=robot,
         vision=vision, unity=unity,
     )
 
     game_manager = GameManager(
-        strategy=strategy, vision=vision,
-        robot=robot, unity=unity,
+        vision=vision, robot=robot, unity=unity,
         human_turn=human_turn, ai_turn=ai_turn,
+        reaction_generator=reaction_generator,
+        game_over_wait=config.game_over_wait,
     )
 
     control = ControlHandler()
@@ -66,8 +88,8 @@ async def main() -> None:
     ws_server.set_disconnect_handler(game_manager.on_client_disconnected)
 
     log.info(
-        "Starting Master (strategy=%s, port=%d)",
-        config.ai_strategy, config.port,
+        "Starting Master (strategy=%s, provider=%s, port=%d)",
+        config.ai_strategy, config.llm_provider, config.port,
     )
     await ws_server.start(host=config.host, port=config.port)
 

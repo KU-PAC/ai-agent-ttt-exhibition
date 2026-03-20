@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from master.application.ports.unity_port import UnityPort
+from master.application.ports import UnityPort
 from master.domain.models import Emotion
 
 

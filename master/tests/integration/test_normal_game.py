@@ -8,7 +8,7 @@ from master.application.human_turn import HumanTurnProcessor
 from master.domain.board import Board
 from master.domain.game_phase import GamePhase
 from master.domain.models import AIDecision, Emotion
-from tests.mocks.mock_llm import MockAIStrategy
+from tests.mocks.mock_llm import MockAIStrategy, MockReactionGenerator
 from tests.mocks.mock_robot import MockRobot
 from tests.mocks.mock_unity import MockUnity
 from tests.mocks.mock_vision import MockVision
@@ -23,15 +23,17 @@ def _build_game(
     unity = MockUnity()
     strategy = MockAIStrategy()
     strategy.set_decisions(ai_decisions)
+    reaction_gen = MockReactionGenerator()
 
-    human_turn = HumanTurnProcessor(vision=vision)
-    human_turn.POLL_INTERVAL = 0.0
+    human_turn = HumanTurnProcessor(vision=vision, poll_interval=0.0)
     ai_turn = AITurnProcessor(
         strategy=strategy, robot=robot, vision=vision, unity=unity,
     )
     game_manager = GameManager(
-        strategy=strategy, vision=vision, robot=robot,
-        unity=unity, human_turn=human_turn, ai_turn=ai_turn,
+        vision=vision, robot=robot, unity=unity,
+        human_turn=human_turn, ai_turn=ai_turn,
+        reaction_generator=reaction_gen,
+        game_over_wait=0.0,
     )
     return game_manager, vision, robot, unity, strategy
 
@@ -39,8 +41,6 @@ def _build_game(
 class TestNormalGame:
     @pytest.mark.asyncio
     async def test_human_wins_full_game(self):
-        # Human: 0,1,2 (top row). AI: 3,4
-        # Turns: H0, A3, H1, A4, H2 → human wins
         human_boards = [
             Board.from_list([1, 0, 0, 0, 0, 0, 0, 0, 0]),
             Board.from_list([1, 1, 0, 2, 0, 0, 0, 0, 0]),
@@ -51,24 +51,21 @@ class TestNormalGame:
             AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="t"),
         ]
 
-        # Vision responses: H poll×2, AI verify, H poll×2, AI verify, H poll×2
         vision_responses = [
-            human_boards[0], human_boards[0],  # H turn 1 stable
-            Board.from_list([1, 0, 0, 2, 0, 0, 0, 0, 0]),  # AI verify
-            human_boards[1], human_boards[1],  # H turn 2 stable
-            Board.from_list([1, 1, 0, 2, 2, 0, 0, 0, 0]),  # AI verify
-            human_boards[2], human_boards[2],  # H turn 3 stable
+            human_boards[0], human_boards[0],
+            Board.from_list([1, 0, 0, 2, 0, 0, 0, 0, 0]),
+            human_boards[1], human_boards[1],
+            Board.from_list([1, 1, 0, 2, 2, 0, 0, 0, 0]),
+            human_boards[2], human_boards[2],
         ]
 
         gm, *_ = _build_game(vision_responses, ai_decisions)
         await gm.start_game("human")
-        await asyncio.sleep(0.5)
 
-        # Wait for game to finish
         for _ in range(50):
             if gm.phase == GamePhase.STANDBY:
                 break
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
 
         assert gm.phase == GamePhase.STANDBY
 
@@ -82,12 +79,12 @@ class TestNormalGame:
         human_move3 = Board.from_list([1, 1, 1, 2, 2, 0, 2, 0, 0])
 
         vision_responses = [
-            board_after_ai,  # AI verify
-            human_move, human_move,  # H stable
-            ai2_board,  # AI verify
-            human_move2, human_move2,  # H stable
-            ai3_board,  # AI verify
-            human_move3, human_move3,  # H stable — H wins
+            board_after_ai,
+            human_move, human_move,
+            ai2_board,
+            human_move2, human_move2,
+            ai3_board,
+            human_move3, human_move3,
         ]
         ai_decisions = [
             AIDecision(next_move=4, emotion=Emotion.FUN, dialogue="t"),
@@ -101,6 +98,6 @@ class TestNormalGame:
         for _ in range(100):
             if gm.phase == GamePhase.STANDBY:
                 break
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
 
         assert gm.phase == GamePhase.STANDBY

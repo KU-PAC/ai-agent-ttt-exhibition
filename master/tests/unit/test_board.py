@@ -1,3 +1,5 @@
+import pytest
+
 from master.domain.board import Board
 
 
@@ -27,11 +29,8 @@ class TestBoard:
 
     def test_frozen(self):
         board = Board.initial()
-        try:
+        with pytest.raises(AttributeError):
             board.cells = (1, 2, 3)
-            assert False, "Should raise"
-        except AttributeError:
-            pass
 
     def test_equality(self):
         a = Board.from_list([1, 0, 0, 0, 0, 0, 0, 0, 0])
@@ -40,8 +39,5 @@ class TestBoard:
 
     def test_set_out_of_range_raises(self):
         board = Board.initial()
-        try:
+        with pytest.raises(IndexError):
             board.set(9, 1)
-            assert False, "Should raise"
-        except IndexError:
-            pass

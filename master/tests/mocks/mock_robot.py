@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from master.application.ports.robot_port import RobotPort
+from master.application.ports import RobotPort
 from master.domain.models import PlacementResult
 
 

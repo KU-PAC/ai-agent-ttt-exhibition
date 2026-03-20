@@ -11,8 +11,7 @@ class TestHumanPolling:
         current = Board.initial()
         valid = Board.from_list([0, 0, 0, 0, 1, 0, 0, 0, 0])
         vision = MockVision(responses=[valid, valid])
-        proc = HumanTurnProcessor(vision=vision)
-        proc.POLL_INTERVAL = 0.0
+        proc = HumanTurnProcessor(vision=vision, poll_interval=0.0)
 
         board, pos = await proc.execute(current)
         assert pos == 4
@@ -24,8 +23,7 @@ class TestHumanPolling:
         a = Board.from_list([1, 0, 0, 0, 0, 0, 0, 0, 0])
         b = Board.from_list([0, 1, 0, 0, 0, 0, 0, 0, 0])
         vision = MockVision(responses=[a, b, b])
-        proc = HumanTurnProcessor(vision=vision)
-        proc.POLL_INTERVAL = 0.0
+        proc = HumanTurnProcessor(vision=vision, poll_interval=0.0)
 
         board, pos = await proc.execute(current)
         assert pos == 1
@@ -37,8 +35,7 @@ class TestHumanPolling:
         invalid = Board.from_list([1, 1, 0, 0, 0, 0, 0, 0, 0])
         valid = Board.from_list([1, 0, 0, 0, 0, 0, 0, 0, 0])
         vision = MockVision(responses=[invalid, invalid, valid, valid])
-        proc = HumanTurnProcessor(vision=vision)
-        proc.POLL_INTERVAL = 0.0
+        proc = HumanTurnProcessor(vision=vision, poll_interval=0.0)
 
         board, pos = await proc.execute(current)
         assert pos == 0

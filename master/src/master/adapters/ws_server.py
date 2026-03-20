@@ -4,12 +4,9 @@ import asyncio
 import json
 import logging
 from enum import Enum
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Protocol
 
-import websockets
-from websockets.asyncio.server import Server, ServerConnection
-
-__all__ = ["ClientType", "WebSocketServer", "WebSocketConnection"]
+from websockets.asyncio.server import Server, ServerConnection, serve
 
 log = logging.getLogger(__name__)
 
@@ -29,10 +26,23 @@ PATH_TO_CLIENT: dict[str, ClientType] = {
 }
 
 
+class ControlHandlerProtocol(Protocol):
+    async def handle_message(
+        self, message: dict[str, Any], game_manager: GameManagerProtocol,
+    ) -> dict[str, Any] | None: ...
+
+
+class GameManagerProtocol(Protocol):
+    async def start_game(self, first_turn: str) -> None: ...
+    async def force_reset(self) -> None: ...
+    def get_internal_state(self) -> dict[str, Any]: ...
+    async def on_client_disconnected(self, client_type: str) -> None: ...
+
+
 class WebSocketConnection:
     def __init__(self, ws: ServerConnection) -> None:
         self._ws = ws
-        self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._pending: dict[str, list[asyncio.Future[dict[str, Any]]]] = {}
         self._recv_task: asyncio.Task[None] | None = None
 
     def start_receiving(self) -> None:
@@ -41,16 +51,23 @@ class WebSocketConnection:
     async def _receive_loop(self) -> None:
         try:
             async for raw in self._ws:
-                msg = json.loads(raw)
+                try:
+                    msg = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    log.warning("Received invalid JSON, skipping")
+                    continue
                 msg_type = msg.get("type", "")
-                if msg_type in self._pending:
-                    self._pending[msg_type].set_result(msg)
-        except websockets.ConnectionClosed:
+                if msg_type in self._pending and self._pending[msg_type]:
+                    fut = self._pending[msg_type].pop(0)
+                    if not fut.done():
+                        fut.set_result(msg)
+        except Exception:
             pass
         finally:
-            for fut in self._pending.values():
-                if not fut.done():
-                    fut.set_exception(ConnectionError("WebSocket closed"))
+            for futs in self._pending.values():
+                for fut in futs:
+                    if not fut.done():
+                        fut.set_exception(ConnectionError("WebSocket closed"))
             self._pending.clear()
 
     async def send(self, message: dict[str, Any]) -> None:
@@ -60,12 +77,14 @@ class WebSocketConnection:
         self, message: dict[str, Any], response_type: str, timeout: float,
     ) -> dict[str, Any]:
         fut: asyncio.Future[dict[str, Any]] = asyncio.get_event_loop().create_future()
-        self._pending[response_type] = fut
+        self._pending.setdefault(response_type, []).append(fut)
         try:
             await self._ws.send(json.dumps(message))
             return await asyncio.wait_for(fut, timeout=timeout)
         finally:
-            self._pending.pop(response_type, None)
+            futs = self._pending.get(response_type, [])
+            if fut in futs:
+                futs.remove(fut)
 
     async def close(self) -> None:
         if self._recv_task and not self._recv_task.done():
@@ -78,25 +97,25 @@ class WebSocketServer:
         self._clients: dict[ClientType, WebSocketConnection] = {}
         self._server: Server | None = None
         self._on_disconnect: Callable[[str], Awaitable[None]] | None = None
-        self._control_handler: Any | None = None
-        self._game_manager: Any | None = None
+        self._control_handler: ControlHandlerProtocol | None = None
+        self._game_manager: GameManagerProtocol | None = None
 
     def set_disconnect_handler(
         self, handler: Callable[[str], Awaitable[None]],
     ) -> None:
         self._on_disconnect = handler
 
-    def set_control_handler(self, handler: Any) -> None:
+    def set_control_handler(self, handler: ControlHandlerProtocol) -> None:
         self._control_handler = handler
 
-    def set_game_manager(self, game_manager: Any) -> None:
+    def set_game_manager(self, game_manager: GameManagerProtocol) -> None:
         self._game_manager = game_manager
 
     def get_client(self, client_type: ClientType) -> WebSocketConnection | None:
         return self._clients.get(client_type)
 
     async def start(self, host: str, port: int) -> None:
-        self._server = await websockets.serve(
+        self._server = await serve(
             self._handle_connection, host, port,
         )
         log.info("WebSocket server started on ws://%s:%d", host, port)
@@ -135,14 +154,18 @@ class WebSocketServer:
     async def _handle_control_loop(self, websocket: ServerConnection) -> None:
         try:
             async for raw in websocket:
-                msg = json.loads(raw)
+                try:
+                    msg = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    log.warning("Invalid JSON from control client, skipping")
+                    continue
                 if self._control_handler and self._game_manager:
                     response = await self._control_handler.handle_message(
                         msg, self._game_manager,
                     )
                     if response is not None:
                         await websocket.send(json.dumps(response))
-        except websockets.ConnectionClosed:
+        except Exception:
             pass
         finally:
             self._clients.pop(ClientType.CONTROL, None)
