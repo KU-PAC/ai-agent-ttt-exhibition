@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 def _build_llm_client(config: Config) -> LLMClientPort:
     if config.llm_provider == "openai":
-        from master.adapters.openai_client import OpenAILLMClient
+        from master.adapters.llm_client import OpenAILLMClient
 
         return OpenAILLMClient(
             api_key=config.llm_api_key,
@@ -34,7 +34,7 @@ def _build_llm_client(config: Config) -> LLMClientPort:
             max_tokens=config.llm_max_tokens,
             temperature=config.llm_temperature,
         )
-    from master.adapters.anthropic_client import AnthropicLLMClient
+    from master.adapters.llm_client import AnthropicLLMClient
 
     return AnthropicLLMClient(
         api_key=config.llm_api_key,

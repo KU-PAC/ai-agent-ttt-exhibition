@@ -10,12 +10,7 @@ from master.adapters.llm_utils import extract_json, parse_emotion
 from master.application.ports import AIStrategyPort, LLMClientPort
 from master.domain.board import Board
 from master.domain.game_rule import is_valid_ai_move
-from master.domain.models import (
-    FALLBACK_DIALOGUES,
-    FALLBACK_EMOTION,
-    AIDecision,
-    Move,
-)
+from master.domain.models import FALLBACK_DIALOGUES, FALLBACK_EMOTION, AIDecision, Move
 
 log = logging.getLogger(__name__)
 

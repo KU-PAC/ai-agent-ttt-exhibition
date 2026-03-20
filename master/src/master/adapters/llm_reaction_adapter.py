@@ -4,14 +4,17 @@ import json
 import logging
 
 from master.adapters.errors import ReactionGenerationError
-from master.adapters.llm_utils import extract_json, parse_emotion
+from master.adapters.llm_utils import (
+    extract_json,
+    parse_emotion,
+    render_board,
+    render_history,
+)
 from master.application.ports import LLMClientPort, ReactionGeneratorPort
-from master.domain.board import AI, HUMAN, Board
+from master.domain.board import AI, Board
 from master.domain.models import GameResult, Move, Reaction
 
 log = logging.getLogger(__name__)
-
-CELL_SYMBOLS = {0: "＿", HUMAN: "〇", AI: "✕"}
 
 REACTION_SYSTEM_PROMPT = (
     "あなたは〇✕ゲーム（三目並べ）のAIプレイヤー（✕）です。\n"
@@ -45,32 +48,6 @@ RESULT_LABELS: dict[GameResult, str] = {
 }
 
 
-def _render_board(board: Board, highlight: int | None = None) -> str:
-    rows = []
-    for r in range(3):
-        cells = []
-        for c in range(3):
-            idx = r * 3 + c
-            sym = CELL_SYMBOLS.get(board.get(idx), "＿")
-            if idx == highlight:
-                sym = f"[{sym}]"
-            else:
-                sym = f" {sym} "
-            cells.append(sym)
-        rows.append("|".join(cells))
-    return "\n".join(rows)
-
-
-def _render_history(move_history: list[Move]) -> str:
-    if not move_history:
-        return "（初手）"
-    parts = []
-    for i, m in enumerate(move_history, 1):
-        who = "人間(〇)" if m.player == HUMAN else "AI(✕)"
-        parts.append(f"{i}. {who} → マス{m.position}")
-    return "\n".join(parts)
-
-
 class LLMReactionAdapter(ReactionGeneratorPort):
     def __init__(
         self,
@@ -90,10 +67,10 @@ class LLMReactionAdapter(ReactionGeneratorPort):
     ) -> Reaction:
         after = board.set(position, AI)
         user_msg = (
-            f"【打つ前の盤面】\n{_render_board(board)}\n\n"
+            f"【打つ前の盤面】\n{render_board(board)}\n\n"
             f"あなた(✕)はマス{position}に打ちます。\n\n"
-            f"【打った後の盤面】（★があなたの手）\n{_render_board(after, highlight=position)}\n\n"
-            f"【これまでの流れ】\n{_render_history(move_history)}"
+            f"【打った後の盤面】（★があなたの手）\n{render_board(after, highlight=position)}\n\n"
+            f"【これまでの流れ】\n{render_history(move_history)}"
         )
         return await self._call_llm(REACTION_SYSTEM_PROMPT, user_msg)
 
@@ -105,9 +82,9 @@ class LLMReactionAdapter(ReactionGeneratorPort):
     ) -> Reaction:
         label = RESULT_LABELS.get(result, "不明")
         user_msg = (
-            f"【最終盤面】\n{_render_board(board)}\n\n"
+            f"【最終盤面】\n{render_board(board)}\n\n"
             f"結果: {label}\n\n"
-            f"【試合の流れ】\n{_render_history(move_history)}"
+            f"【試合の流れ】\n{render_history(move_history)}"
         )
         return await self._call_llm(GAME_OVER_SYSTEM_PROMPT, user_msg)
 

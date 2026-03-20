@@ -10,6 +10,9 @@ from websockets.asyncio.client import connect
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from master.domain.board import Board
+from master.domain.game_rule import judge
+from master.domain.models import GameResult
 from simulator.board_ui import prompt_human_move, render_board, render_index_guide
 
 logging.basicConfig(
@@ -23,6 +26,7 @@ MASTER_PORT = 8765
 
 async def start_master() -> asyncio.Task[None]:
     from master.main import main
+
     task = asyncio.create_task(main())
     await asyncio.sleep(1.5)
     return task
@@ -45,10 +49,14 @@ async def run_game() -> None:
             async for raw in v_ws:
                 msg = json.loads(raw)
                 if msg.get("type") == "request_board_state":
-                    await v_ws.send(json.dumps({
-                        "type": "board_state_response",
-                        "payload": {"board": list(board)},
-                    }))
+                    await v_ws.send(
+                        json.dumps(
+                            {
+                                "type": "board_state_response",
+                                "payload": {"board": list(board)},
+                            }
+                        )
+                    )
         except Exception:
             pass
 
@@ -59,10 +67,18 @@ async def run_game() -> None:
                 if msg.get("type") == "place_piece":
                     pos = msg["payload"]["position"]
                     board[pos] = msg["payload"].get("piece_type", 2)
-                    await r_ws.send(json.dumps({
-                        "type": "placement_result",
-                        "payload": {"success": True, "position": pos, "error_detail": None},
-                    }))
+                    await r_ws.send(
+                        json.dumps(
+                            {
+                                "type": "placement_result",
+                                "payload": {
+                                    "success": True,
+                                    "position": pos,
+                                    "error_detail": None,
+                                },
+                            }
+                        )
+                    )
                     await place_events.put(pos)
         except Exception:
             pass
@@ -74,7 +90,9 @@ async def run_game() -> None:
                 if msg["type"] == "set_state":
                     await states.put(msg["payload"]["state"])
                 elif msg["type"] == "play_reaction":
-                    await reactions.put((msg["payload"]["emotion"], msg["payload"]["dialogue"]))
+                    await reactions.put(
+                        (msg["payload"]["emotion"], msg["payload"]["dialogue"])
+                    )
         except Exception:
             pass
 
@@ -93,10 +111,14 @@ async def run_game() -> None:
     first_turn = "ai" if first in ("a", "ai") else "human"
 
     async with connect(f"{base}/control") as c_ws:
-        await c_ws.send(json.dumps({
-            "type": "start_game",
-            "payload": {"first_turn": first_turn},
-        }))
+        await c_ws.send(
+            json.dumps(
+                {
+                    "type": "start_game",
+                    "payload": {"first_turn": first_turn},
+                }
+            )
+        )
         await asyncio.sleep(0.1)
 
     print(f"\nゲーム開始 (先手: {'人間' if first_turn == 'human' else 'AI'})")
@@ -123,7 +145,9 @@ async def run_game() -> None:
         if state == "human_turn":
             print(f"\n{render_board(board)}")
             pos = await asyncio.get_event_loop().run_in_executor(
-                None, prompt_human_move, board,
+                None,
+                prompt_human_move,
+                board,
             )
             board[pos] = 1
             print(f"\n{render_board(board)}")
@@ -132,7 +156,9 @@ async def run_game() -> None:
         if state == "thinking":
             print("\nAI思考中...")
             try:
-                emotion, dialogue = await asyncio.wait_for(reactions.get(), timeout=20.0)
+                emotion, dialogue = await asyncio.wait_for(
+                    reactions.get(), timeout=20.0
+                )
                 print(f"AI [{emotion}]: 「{dialogue}」")
             except asyncio.TimeoutError:
                 print("  (セリフ取得タイムアウト)")
@@ -145,19 +171,15 @@ async def run_game() -> None:
                 break
             continue
 
-    winner = None
-    for a, b, c in [(0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6)]:
-        if board[a] != 0 and board[a] == board[b] == board[c]:
-            winner = board[a]
-            break
-
-    print(f"\n--- ゲーム終了 ---")
-    if winner == 1:
-        print("結果: 人間の勝ち!")
-    elif winner == 2:
-        print("結果: AIの勝ち!")
-    elif 0 not in board:
-        print("結果: 引き分け!")
+    result = judge(Board.from_list(board))
+    print("\n--- ゲーム終了 ---")
+    result_labels = {
+        GameResult.WIN_HUMAN: "結果: 人間の勝ち!",
+        GameResult.WIN_AI: "結果: AIの勝ち!",
+        GameResult.DRAW: "結果: 引き分け!",
+    }
+    if result in result_labels:
+        print(result_labels[result])
 
     print(f"\n最終盤面:")
     print(render_board(board))
