@@ -3,7 +3,6 @@ from master.domain.game_rule import (
     check_winner,
     find_human_move,
     is_valid_ai_move,
-    is_valid_human_move,
     judge,
 )
 from master.domain.models import GameResult
@@ -48,28 +47,25 @@ class TestHumanMoveValidation:
     def test_valid_single_move(self):
         current = Board.from_list([0, 0, 0, 0, 0, 0, 0, 0, 0])
         new = Board.from_list([0, 0, 0, 0, 1, 0, 0, 0, 0])
-        assert is_valid_human_move(current, new) is True
         assert find_human_move(current, new) == 4
 
     def test_two_cells_changed_is_invalid(self):
         current = Board.initial()
         new = Board.from_list([1, 1, 0, 0, 0, 0, 0, 0, 0])
-        assert is_valid_human_move(current, new) is False
         assert find_human_move(current, new) is None
 
     def test_ai_piece_placed_is_invalid(self):
         current = Board.initial()
         new = Board.from_list([2, 0, 0, 0, 0, 0, 0, 0, 0])
-        assert is_valid_human_move(current, new) is False
+        assert find_human_move(current, new) is None
 
     def test_overwrite_existing_piece_is_invalid(self):
         current = Board.from_list([2, 0, 0, 0, 0, 0, 0, 0, 0])
         new = Board.from_list([1, 0, 0, 0, 0, 0, 0, 0, 0])
-        assert is_valid_human_move(current, new) is False
+        assert find_human_move(current, new) is None
 
     def test_no_change_is_invalid(self):
         board = Board.initial()
-        assert is_valid_human_move(board, board) is False
         assert find_human_move(board, board) is None
 
 

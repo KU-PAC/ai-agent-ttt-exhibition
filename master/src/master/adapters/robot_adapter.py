@@ -13,14 +13,17 @@ log = logging.getLogger(__name__)
 
 class RobotWebSocketAdapter(RobotPort):
     def __init__(
-        self, ws_server: WebSocketServer,
+        self,
+        ws_server: WebSocketServer,
         placement_timeout: float = 30.0,
     ) -> None:
         self._ws_server = ws_server
         self._placement_timeout = placement_timeout
 
     async def place_piece(
-        self, position: int, piece_type: int,
+        self,
+        position: int,
+        piece_type: int,
     ) -> PlacementResult:
         conn = self._ws_server.get_client(ClientType.ROBOT)
         if conn is None:

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 BOARD_SIZE = 9
-EMPTY = 0
 HUMAN = 1
 AI = 2
 

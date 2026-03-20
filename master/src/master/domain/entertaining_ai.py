@@ -62,10 +62,7 @@ def estimate_skill(move_history: list[Move], boards_history: list[Board]) -> flo
     if not human_moves:
         return DEFAULT_SKILL
 
-    total = sum(
-        SKILL_WEIGHTS[evaluate_human_move(b, p).value]
-        for b, p in human_moves
-    )
+    total = sum(SKILL_WEIGHTS[evaluate_human_move(b, p).value] for b, p in human_moves)
     return total / len(human_moves)
 
 

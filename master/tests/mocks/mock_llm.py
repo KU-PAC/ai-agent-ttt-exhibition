@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from master.application.ports import AIStrategyPort, LLMClientPort, ReactionGeneratorPort
+from master.application.ports import (
+    AIStrategyPort,
+    LLMClientPort,
+    ReactionGeneratorPort,
+)
 from master.domain.board import Board
 from master.domain.models import AIDecision, Emotion, GameResult, Move, Reaction
 
@@ -13,7 +17,9 @@ class MockAIStrategy(AIStrategyPort):
         self._decisions = list(decisions)
 
     async def decide(
-        self, board: Board, move_history: list[Move],
+        self,
+        board: Board,
+        move_history: list[Move],
     ) -> AIDecision:
         if self._decisions:
             return self._decisions.pop(0)
@@ -28,16 +34,23 @@ class MockAIStrategy(AIStrategyPort):
 class MockReactionGenerator(ReactionGeneratorPort):
     def __init__(self, reaction: Reaction | None = None) -> None:
         self._reaction = reaction or Reaction(
-            emotion=Emotion.NEUTRAL, dialogue="テスト",
+            emotion=Emotion.NEUTRAL,
+            dialogue="テスト",
         )
 
     async def generate(
-        self, board: Board, position: int, move_history: list[Move],
+        self,
+        board: Board,
+        position: int,
+        move_history: list[Move],
     ) -> Reaction:
         return self._reaction
 
     async def generate_game_over(
-        self, board: Board, result: GameResult, move_history: list[Move],
+        self,
+        board: Board,
+        result: GameResult,
+        move_history: list[Move],
     ) -> Reaction:
         return self._reaction
 
@@ -48,7 +61,10 @@ class MockLLMClient(LLMClientPort):
         self.call_count = 0
 
     async def chat(
-        self, system: str, user_message: str, timeout: float = 10.0,
+        self,
+        system: str,
+        user_message: str,
+        timeout: float = 10.0,
     ) -> str:
         self.call_count += 1
         if self._responses:

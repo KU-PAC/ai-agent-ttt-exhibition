@@ -4,6 +4,7 @@ import random
 from dataclasses import dataclass
 from enum import Enum
 
+
 class Emotion(Enum):
     JOY = "joy"
     SORROW = "sorrow"

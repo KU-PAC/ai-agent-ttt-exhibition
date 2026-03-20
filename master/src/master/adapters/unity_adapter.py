@@ -25,7 +25,9 @@ class UnityWebSocketAdapter(UnityPort):
         if conn is None:
             log.warning("Unity not connected, skipping play_reaction")
             return
-        await conn.send({
-            "type": "play_reaction",
-            "payload": {"emotion": emotion.value, "dialogue": dialogue},
-        })
+        await conn.send(
+            {
+                "type": "play_reaction",
+                "payload": {"emotion": emotion.value, "dialogue": dialogue},
+            }
+        )

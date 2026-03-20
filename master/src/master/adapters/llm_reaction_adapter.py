@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 
@@ -74,15 +73,20 @@ def _render_history(move_history: list[Move]) -> str:
 
 class LLMReactionAdapter(ReactionGeneratorPort):
     def __init__(
-        self, llm_client: LLMClientPort,
-        max_retries: int = 3, timeout: float = 10.0,
+        self,
+        llm_client: LLMClientPort,
+        max_retries: int = 3,
+        timeout: float = 10.0,
     ) -> None:
         self._llm = llm_client
         self._max_retries = max_retries
         self._timeout = timeout
 
     async def generate(
-        self, board: Board, position: int, move_history: list[Move],
+        self,
+        board: Board,
+        position: int,
+        move_history: list[Move],
     ) -> Reaction:
         after = board.set(position, AI)
         user_msg = (
@@ -94,7 +98,10 @@ class LLMReactionAdapter(ReactionGeneratorPort):
         return await self._call_llm(REACTION_SYSTEM_PROMPT, user_msg)
 
     async def generate_game_over(
-        self, board: Board, result: GameResult, move_history: list[Move],
+        self,
+        board: Board,
+        result: GameResult,
+        move_history: list[Move],
     ) -> Reaction:
         label = RESULT_LABELS.get(result, "不明")
         user_msg = (
@@ -112,10 +119,10 @@ class LLMReactionAdapter(ReactionGeneratorPort):
                 emotion = parse_emotion(str(raw.get("emotion", "neutral")))
                 dialogue = str(raw.get("dialogue", ""))
                 return Reaction(emotion=emotion, dialogue=dialogue)
-            except asyncio.CancelledError:
-                raise
             except Exception as e:
-                log.warning("Reaction LLM retry %d/%d: %s", attempt, self._max_retries, e)
+                log.warning(
+                    "Reaction LLM retry %d/%d: %s", attempt, self._max_retries, e
+                )
 
         raise ReactionGenerationError(
             f"Reaction generation failed after {self._max_retries} retries"

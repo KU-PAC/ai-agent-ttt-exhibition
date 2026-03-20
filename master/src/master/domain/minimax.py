@@ -59,12 +59,14 @@ def score_all_moves(board: Board, player: int) -> list[ScoredMove]:
         score = minimax(next_board, opponent, depth=1)
         is_winning = check_winner(next_board) == player
         is_blocking = cell in opponent_winning
-        moves.append(ScoredMove(
-            position=cell,
-            score=score,
-            is_winning=is_winning,
-            is_blocking=is_blocking,
-        ))
+        moves.append(
+            ScoredMove(
+                position=cell,
+                score=score,
+                is_winning=is_winning,
+                is_blocking=is_blocking,
+            )
+        )
 
     moves.sort(key=lambda m: m.score, reverse=(player == AI))
     return moves

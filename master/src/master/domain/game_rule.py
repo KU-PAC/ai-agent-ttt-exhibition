@@ -33,10 +33,6 @@ def judge(board: Board) -> GameResult:
     return GameResult.ONGOING
 
 
-def is_valid_human_move(current: Board, new_board: Board) -> bool:
-    return find_human_move(current, new_board) is not None
-
-
 def find_human_move(current: Board, new_board: Board) -> int | None:
     diff_index: int | None = None
     for i in range(BOARD_SIZE):

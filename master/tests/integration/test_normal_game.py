@@ -27,11 +27,17 @@ def _build_game(
 
     human_turn = HumanTurnProcessor(vision=vision, poll_interval=0.0)
     ai_turn = AITurnProcessor(
-        strategy=strategy, robot=robot, vision=vision, unity=unity,
+        strategy=strategy,
+        robot=robot,
+        vision=vision,
+        unity=unity,
     )
     game_manager = GameManager(
-        vision=vision, robot=robot, unity=unity,
-        human_turn=human_turn, ai_turn=ai_turn,
+        vision=vision,
+        robot=robot,
+        unity=unity,
+        human_turn=human_turn,
+        ai_turn=ai_turn,
         reaction_generator=reaction_gen,
         game_over_wait=0.0,
     )
@@ -52,11 +58,14 @@ class TestNormalGame:
         ]
 
         vision_responses = [
-            human_boards[0], human_boards[0],
+            human_boards[0],
+            human_boards[0],
             Board.from_list([1, 0, 0, 2, 0, 0, 0, 0, 0]),
-            human_boards[1], human_boards[1],
+            human_boards[1],
+            human_boards[1],
             Board.from_list([1, 1, 0, 2, 2, 0, 0, 0, 0]),
-            human_boards[2], human_boards[2],
+            human_boards[2],
+            human_boards[2],
         ]
 
         gm, *_ = _build_game(vision_responses, ai_decisions)
@@ -80,11 +89,14 @@ class TestNormalGame:
 
         vision_responses = [
             board_after_ai,
-            human_move, human_move,
+            human_move,
+            human_move,
             ai2_board,
-            human_move2, human_move2,
+            human_move2,
+            human_move2,
             ai3_board,
-            human_move3, human_move3,
+            human_move3,
+            human_move3,
         ]
         ai_decisions = [
             AIDecision(next_move=4, emotion=Emotion.FUN, dialogue="t"),

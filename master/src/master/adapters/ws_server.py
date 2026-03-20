@@ -8,6 +8,8 @@ from typing import Any, Awaitable, Callable, Protocol
 
 from websockets.asyncio.server import Server, ServerConnection, serve
 
+from master.application.ports import GameManagerProtocol
+
 log = logging.getLogger(__name__)
 
 
@@ -28,15 +30,10 @@ PATH_TO_CLIENT: dict[str, ClientType] = {
 
 class ControlHandlerProtocol(Protocol):
     async def handle_message(
-        self, message: dict[str, Any], game_manager: GameManagerProtocol,
+        self,
+        message: dict[str, Any],
+        game_manager: GameManagerProtocol,
     ) -> dict[str, Any] | None: ...
-
-
-class GameManagerProtocol(Protocol):
-    async def start_game(self, first_turn: str) -> None: ...
-    async def force_reset(self) -> None: ...
-    def get_internal_state(self) -> dict[str, Any]: ...
-    async def on_client_disconnected(self, client_type: str) -> None: ...
 
 
 class WebSocketConnection:
@@ -74,7 +71,10 @@ class WebSocketConnection:
         await self._ws.send(json.dumps(message))
 
     async def request(
-        self, message: dict[str, Any], response_type: str, timeout: float,
+        self,
+        message: dict[str, Any],
+        response_type: str,
+        timeout: float,
     ) -> dict[str, Any]:
         fut: asyncio.Future[dict[str, Any]] = asyncio.get_event_loop().create_future()
         self._pending.setdefault(response_type, []).append(fut)
@@ -101,7 +101,8 @@ class WebSocketServer:
         self._game_manager: GameManagerProtocol | None = None
 
     def set_disconnect_handler(
-        self, handler: Callable[[str], Awaitable[None]],
+        self,
+        handler: Callable[[str], Awaitable[None]],
     ) -> None:
         self._on_disconnect = handler
 
@@ -116,7 +117,9 @@ class WebSocketServer:
 
     async def start(self, host: str, port: int) -> None:
         self._server = await serve(
-            self._handle_connection, host, port,
+            self._handle_connection,
+            host,
+            port,
         )
         log.info("WebSocket server started on ws://%s:%d", host, port)
         await self._server.wait_closed()
@@ -161,7 +164,8 @@ class WebSocketServer:
                     continue
                 if self._control_handler and self._game_manager:
                     response = await self._control_handler.handle_message(
-                        msg, self._game_manager,
+                        msg,
+                        self._game_manager,
                     )
                     if response is not None:
                         await websocket.send(json.dumps(response))

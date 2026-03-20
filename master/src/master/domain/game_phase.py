@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class GamePhase(Enum):
     STANDBY = "standby"
     HUMAN_TURN = "human_turn"

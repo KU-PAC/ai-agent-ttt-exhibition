@@ -27,9 +27,20 @@ log = logging.getLogger(__name__)
 def _build_llm_client(config: Config) -> LLMClientPort:
     if config.llm_provider == "openai":
         from master.adapters.openai_client import OpenAILLMClient
-        return OpenAILLMClient(api_key=config.llm_api_key, model=config.llm_model)
+
+        return OpenAILLMClient(
+            api_key=config.llm_api_key,
+            model=config.llm_model,
+            max_tokens=config.llm_max_tokens,
+            temperature=config.llm_temperature,
+        )
     from master.adapters.anthropic_client import AnthropicLLMClient
-    return AnthropicLLMClient(api_key=config.llm_api_key, model=config.llm_model)
+
+    return AnthropicLLMClient(
+        api_key=config.llm_api_key,
+        model=config.llm_model,
+        max_tokens=config.llm_max_tokens,
+    )
 
 
 async def main() -> None:
@@ -71,13 +82,18 @@ async def main() -> None:
         stable_count_required=config.stable_count_required,
     )
     ai_turn = AITurnProcessor(
-        strategy=strategy, robot=robot,
-        vision=vision, unity=unity,
+        strategy=strategy,
+        robot=robot,
+        vision=vision,
+        unity=unity,
     )
 
     game_manager = GameManager(
-        vision=vision, robot=robot, unity=unity,
-        human_turn=human_turn, ai_turn=ai_turn,
+        vision=vision,
+        robot=robot,
+        unity=unity,
+        human_turn=human_turn,
+        ai_turn=ai_turn,
         reaction_generator=reaction_generator,
         game_over_wait=config.game_over_wait,
     )
@@ -89,7 +105,9 @@ async def main() -> None:
 
     log.info(
         "Starting Master (strategy=%s, provider=%s, port=%d)",
-        config.ai_strategy, config.llm_provider, config.port,
+        config.ai_strategy,
+        config.llm_provider,
+        config.port,
     )
     await ws_server.start(host=config.host, port=config.port)
 

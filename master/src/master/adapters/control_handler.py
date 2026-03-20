@@ -3,14 +3,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from master.adapters.ws_server import GameManagerProtocol
+from master.application.ports import GameManagerProtocol
 
 log = logging.getLogger(__name__)
 
 
 class ControlHandler:
     async def handle_message(
-        self, message: dict[str, Any], game_manager: GameManagerProtocol,
+        self,
+        message: dict[str, Any],
+        game_manager: GameManagerProtocol,
     ) -> dict[str, Any] | None:
         msg_type = message.get("type", "")
         payload = message.get("payload", {})

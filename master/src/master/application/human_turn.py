@@ -5,7 +5,7 @@ import logging
 
 from master.application.ports import VisionPort
 from master.domain.board import Board
-from master.domain.game_rule import find_human_move, is_valid_human_move
+from master.domain.game_rule import find_human_move
 
 log = logging.getLogger(__name__)
 
@@ -27,15 +27,15 @@ class HumanTurnProcessor:
 
         while True:
             received = await self._vision.request_board_state()
-            candidate, stable_count, is_stable = self._validate_and_check_stability(
-                current_board, received, candidate, stable_count,
+            candidate, stable_count, is_stable, position = (
+                self._validate_and_check_stability(
+                    current_board,
+                    received,
+                    candidate,
+                    stable_count,
+                )
             )
             if is_stable and candidate is not None:
-                position = find_human_move(current_board, candidate)
-                if position is None:
-                    candidate = None
-                    stable_count = 0
-                    continue
                 log.info("Human move confirmed at position %d", position)
                 return candidate, position
 
@@ -47,11 +47,17 @@ class HumanTurnProcessor:
         received_board: Board,
         prev_candidate: Board | None,
         stable_count: int,
-    ) -> tuple[Board | None, int, bool]:
-        if not is_valid_human_move(current_board, received_board):
-            return None, 0, False
+    ) -> tuple[Board | None, int, bool, int]:
+        position = find_human_move(current_board, received_board)
+        if position is None:
+            return None, 0, False, -1
 
         if prev_candidate is not None and received_board == prev_candidate:
             new_count = stable_count + 1
-            return received_board, new_count, new_count >= self._stable_count_required
-        return received_board, 1, 1 >= self._stable_count_required
+            return (
+                received_board,
+                new_count,
+                new_count >= self._stable_count_required,
+                position,
+            )
+        return received_board, 1, 1 >= self._stable_count_required, position

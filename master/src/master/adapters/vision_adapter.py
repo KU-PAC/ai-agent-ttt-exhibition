@@ -13,8 +13,10 @@ log = logging.getLogger(__name__)
 
 class VisionWebSocketAdapter(VisionPort):
     def __init__(
-        self, ws_server: WebSocketServer,
-        timeout: float = 1.0, max_retries: int = 3,
+        self,
+        ws_server: WebSocketServer,
+        timeout: float = 1.0,
+        max_retries: int = 3,
     ) -> None:
         self._ws_server = ws_server
         self._timeout = timeout
@@ -34,8 +36,15 @@ class VisionWebSocketAdapter(VisionPort):
                 cells = response["payload"]["board"]
                 return Board.from_list(cells)
             except (TimeoutError, asyncio.TimeoutError):
-                log.warning("Vision timeout (attempt %d/%d)", attempt, self._max_retries)
+                log.warning(
+                    "Vision timeout (attempt %d/%d)", attempt, self._max_retries
+                )
             except (KeyError, TypeError) as e:
-                log.warning("Vision malformed response (attempt %d/%d): %s", attempt, self._max_retries, e)
+                log.warning(
+                    "Vision malformed response (attempt %d/%d): %s",
+                    attempt,
+                    self._max_retries,
+                    e,
+                )
 
         raise VisionTimeoutError(f"Vision failed after {self._max_retries} retries")

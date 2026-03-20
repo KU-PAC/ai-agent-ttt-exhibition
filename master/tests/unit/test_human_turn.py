@@ -48,41 +48,56 @@ class TestStabilityLogic:
         current = Board.initial()
         received = Board.from_list([0, 0, 0, 0, 1, 0, 0, 0, 0])
         proc = HumanTurnProcessor(vision=MockVision(), poll_interval=0.0)
-        candidate, count, stable = proc._validate_and_check_stability(
-            current, received, None, 0,
+        candidate, count, stable, position = proc._validate_and_check_stability(
+            current,
+            received,
+            None,
+            0,
         )
         assert candidate == received
         assert count == 1
         assert stable is False
+        assert position == 4
 
     def test_same_move_twice_is_stable(self):
         current = Board.initial()
         received = Board.from_list([0, 0, 0, 0, 1, 0, 0, 0, 0])
         proc = HumanTurnProcessor(vision=MockVision(), poll_interval=0.0)
-        candidate, count, stable = proc._validate_and_check_stability(
-            current, received, received, 1,
+        candidate, count, stable, position = proc._validate_and_check_stability(
+            current,
+            received,
+            received,
+            1,
         )
         assert stable is True
         assert count == 2
+        assert position == 4
 
     def test_different_valid_move_resets(self):
         current = Board.initial()
         prev = Board.from_list([1, 0, 0, 0, 0, 0, 0, 0, 0])
         new = Board.from_list([0, 1, 0, 0, 0, 0, 0, 0, 0])
         proc = HumanTurnProcessor(vision=MockVision(), poll_interval=0.0)
-        candidate, count, stable = proc._validate_and_check_stability(
-            current, new, prev, 1,
+        candidate, count, stable, position = proc._validate_and_check_stability(
+            current,
+            new,
+            prev,
+            1,
         )
         assert candidate == new
         assert count == 1
         assert stable is False
+        assert position == 1
 
     def test_invalid_move_resets(self):
         current = Board.initial()
         invalid = Board.from_list([2, 0, 0, 0, 0, 0, 0, 0, 0])
         proc = HumanTurnProcessor(vision=MockVision(), poll_interval=0.0)
-        candidate, count, stable = proc._validate_and_check_stability(
-            current, invalid, None, 1,
+        candidate, count, stable, _ = proc._validate_and_check_stability(
+            current,
+            invalid,
+            None,
+            1,
         )
         assert candidate is None
         assert count == 0

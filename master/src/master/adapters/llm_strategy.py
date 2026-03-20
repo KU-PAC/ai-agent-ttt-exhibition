@@ -32,15 +32,19 @@ SYSTEM_PROMPT = (
 
 class LLMStrategy(AIStrategyPort):
     def __init__(
-        self, llm_client: LLMClientPort,
-        max_retries: int = 3, timeout: float = 10.0,
+        self,
+        llm_client: LLMClientPort,
+        max_retries: int = 3,
+        timeout: float = 10.0,
     ) -> None:
         self._llm = llm_client
         self._max_retries = max_retries
         self._timeout = timeout
 
     async def decide(
-        self, board: Board, move_history: list[Move],
+        self,
+        board: Board,
+        move_history: list[Move],
     ) -> AIDecision:
         error_context: str | None = None
 
@@ -50,7 +54,12 @@ class LLMStrategy(AIStrategyPort):
                 content = await self._llm.chat(SYSTEM_PROMPT, user_msg, self._timeout)
                 raw = json.loads(extract_json(content))
                 return self._parse_response(raw, board)
-            except (json.JSONDecodeError, LLMInvalidResponseError, KeyError, ValueError) as e:
+            except (
+                json.JSONDecodeError,
+                LLMInvalidResponseError,
+                KeyError,
+                ValueError,
+            ) as e:
                 error_context = f"Attempt {attempt} failed: {e}"
                 log.warning("LLM retry %d/%d: %s", attempt, self._max_retries, e)
             except (TimeoutError, asyncio.TimeoutError):
@@ -64,7 +73,9 @@ class LLMStrategy(AIStrategyPort):
     def _build_user_message(board: Board, error_context: str | None) -> str:
         msg = f"現在の盤面: {board.to_list()}\n空きマス: {board.empty_cells()}"
         if error_context:
-            msg += f"\n\n前回のエラー: {error_context}\n正しいJSONで再回答してください。"
+            msg += (
+                f"\n\n前回のエラー: {error_context}\n正しいJSONで再回答してください。"
+            )
         return msg
 
     @staticmethod

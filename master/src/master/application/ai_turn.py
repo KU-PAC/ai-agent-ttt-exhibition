@@ -29,7 +29,8 @@ class AITurnProcessor:
         decision = await self._strategy.decide(board, move_history)
         log.info(
             "AI decided: position=%d emotion=%s",
-            decision.next_move, decision.emotion.value,
+            decision.next_move,
+            decision.emotion.value,
         )
 
         await self._unity.play_reaction(decision.emotion, decision.dialogue)

@@ -5,9 +5,14 @@ import logging
 
 from master.application.ai_turn import AITurnProcessor
 from master.application.human_turn import HumanTurnProcessor
-from master.application.ports import ReactionGeneratorPort, RobotPort, UnityPort, VisionPort
+from master.application.ports import (
+    ReactionGeneratorPort,
+    RobotPort,
+    UnityPort,
+    VisionPort,
+)
 from master.domain.board import AI, BOARD_SIZE, HUMAN, Board
-from master.domain.errors import InvalidGameStateError, MasterError
+from master.domain.errors import InvalidGameStateError
 from master.domain.game_phase import GamePhase
 from master.domain.game_rule import judge
 from master.domain.models import GameResult, Move, make_fallback_reaction
@@ -118,7 +123,9 @@ class GameManager:
 
         try:
             reaction = await self._reaction_generator.generate_game_over(
-                self._board, result, self._move_history,
+                self._board,
+                result,
+                self._move_history,
             )
         except Exception:
             log.warning("Game over reaction generation failed, using fallback")
@@ -155,7 +162,9 @@ class GameManager:
 
     async def on_client_disconnected(self, client_type: str) -> None:
         if self._phase not in (GamePhase.STANDBY, GamePhase.RESETTING):
-            log.warning("Client %s disconnected during game, forcing reset", client_type)
+            log.warning(
+                "Client %s disconnected during game, forcing reset", client_type
+            )
             await self.force_reset()
 
 

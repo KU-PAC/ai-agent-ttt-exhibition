@@ -31,9 +31,11 @@ class TestAITurnProcessor:
         expected_board = board.set(4, 2)
 
         strategy = MockAIStrategy()
-        strategy.set_decisions([
-            AIDecision(next_move=4, emotion=Emotion.JOY, dialogue="ここだ！"),
-        ])
+        strategy.set_decisions(
+            [
+                AIDecision(next_move=4, emotion=Emotion.JOY, dialogue="ここだ！"),
+            ]
+        )
         vision = MockVision(responses=[expected_board])
         unity = MockUnity()
 
@@ -49,9 +51,11 @@ class TestAITurnProcessor:
     async def test_robot_failure_raises(self):
         board = Board.initial()
         strategy = MockAIStrategy()
-        strategy.set_decisions([
-            AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="test"),
-        ])
+        strategy.set_decisions(
+            [
+                AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="test"),
+            ]
+        )
         robot = MockRobot()
         robot.set_next_result(
             PlacementResult(success=False, position=4, error_detail="motor error"),
@@ -65,9 +69,11 @@ class TestAITurnProcessor:
     async def test_vision_mismatch_raises(self):
         board = Board.initial()
         strategy = MockAIStrategy()
-        strategy.set_decisions([
-            AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="test"),
-        ])
+        strategy.set_decisions(
+            [
+                AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="test"),
+            ]
+        )
         wrong_board = board.set(0, 2)
         vision = MockVision(responses=[wrong_board])
 
