@@ -165,7 +165,6 @@ async def run_game() -> None:
 
             try:
                 ai_pos = await asyncio.wait_for(place_events.get(), timeout=20.0)
-                print(f"\n{render_board(board)}")
             except asyncio.TimeoutError:
                 print("  (配置タイムアウト)")
                 break

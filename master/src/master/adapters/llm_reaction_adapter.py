@@ -5,6 +5,7 @@ import logging
 
 from master.adapters.errors import ReactionGenerationError
 from master.adapters.llm_utils import (
+    analyze_move,
     extract_json,
     parse_emotion,
     render_board,
@@ -19,13 +20,13 @@ log = logging.getLogger(__name__)
 REACTION_SYSTEM_PROMPT = (
     "あなたは〇✕ゲーム（三目並べ）のAIプレイヤー（✕）です。\n"
     "あなたが打つ手は既に決まっています。\n"
-    "盤面の状況・流れを読み取り、この一手にふさわしい感情とセリフを返してください。\n"
-    "感情の目安:\n"
-    "- joy: 勝てそう、有利になった\n"
-    "- angry: 相手にやられた、悔しい防御\n"
-    "- sorrow: 不利、追い詰められた\n"
-    "- fun: 余裕がある、楽しんでいる\n"
-    "- neutral: 序盤、様子見\n\n"
+    "【打った後の盤面】を必ず確認し、この一手の結果に基づいて感情とセリフを返してください。\n"
+    "判定の優先順位:\n"
+    "1. 打った後に✕が縦・横・斜めに3つ揃っていれば → あなたの勝ち → joy\n"
+    "2. 相手(〇)のリーチを防いだ手なら → angry (悔しい防御)\n"
+    "3. 自分が有利になった手なら → fun (余裕)\n"
+    "4. 不利な状況なら → sorrow\n"
+    "5. 序盤・様子見 → neutral\n\n"
     "出力フォーマット（厳守・JSONのみ返答）:\n"
     '{"emotion": "<joy|sorrow|angry|fun|neutral>", "dialogue": "<セリフ>"}'
 )
@@ -66,11 +67,14 @@ class LLMReactionAdapter(ReactionGeneratorPort):
         move_history: list[Move],
     ) -> Reaction:
         after = board.set(position, AI)
+        analysis = analyze_move(board, position, AI)
+        full_history = list(move_history) + [Move(player=AI, position=position)]
         user_msg = (
             f"【打つ前の盤面】\n{render_board(board)}\n\n"
             f"あなた(✕)はマス{position}に打ちます。\n\n"
-            f"【打った後の盤面】（★があなたの手）\n{render_board(after, highlight=position)}\n\n"
-            f"【これまでの流れ】\n{render_history(move_history)}"
+            f"【打った後の盤面】\n{render_board(after, highlight=position)}\n\n"
+            f"【この手の分析】\n{analysis}\n\n"
+            f"【これまでの流れ】\n{render_history(full_history)}"
         )
         return await self._call_llm(REACTION_SYSTEM_PROMPT, user_msg)
 
