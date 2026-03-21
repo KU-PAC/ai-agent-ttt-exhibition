@@ -9,10 +9,6 @@ class RobotTimeoutError(MasterError):
     pass
 
 
-class LLMTimeoutError(MasterError):
-    pass
-
-
 class LLMInvalidResponseError(MasterError):
     pass
 

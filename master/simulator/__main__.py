@@ -122,6 +122,7 @@ async def run_game() -> None:
         await asyncio.sleep(0.1)
 
     print(f"\nゲーム開始 (先手: {'人間' if first_turn == 'human' else 'AI'})")
+    print(f"\n{render_board(board)}")
 
     while True:
         try:
@@ -143,7 +144,6 @@ async def run_game() -> None:
             break
 
         if state == "human_turn":
-            print(f"\n{render_board(board)}")
             pos = await asyncio.get_event_loop().run_in_executor(
                 None,
                 prompt_human_move,
@@ -165,6 +165,7 @@ async def run_game() -> None:
 
             try:
                 ai_pos = await asyncio.wait_for(place_events.get(), timeout=20.0)
+                print(f"\n{render_board(board)}")
             except asyncio.TimeoutError:
                 print("  (配置タイムアウト)")
                 break

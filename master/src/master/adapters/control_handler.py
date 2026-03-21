@@ -19,11 +19,17 @@ class ControlHandler:
 
         if msg_type == "start_game":
             first_turn = payload.get("first_turn", "human")
-            await game_manager.start_game(first_turn)
+            try:
+                await game_manager.start_game(first_turn)
+            except Exception as e:
+                log.warning("start_game failed: %s", e)
             return None
 
         if msg_type == "force_reset":
-            await game_manager.force_reset()
+            try:
+                await game_manager.force_reset()
+            except Exception as e:
+                log.warning("force_reset failed: %s", e)
             return None
 
         if msg_type == "get_internal_state":
