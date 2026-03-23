@@ -58,25 +58,25 @@ graph TB
 ### 4.1 ステートマシン
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Standby
-    Standby --> HumanTurn: start_game(first_turn=human)
-    Standby --> AIThinking: start_game(first_turn=ai)
+graph TD
+    Start(( )) -- start_game, first_turn=human --> HumanTurn
+    Start -- start_game, first_turn=ai --> AIThinking
 
-    HumanTurn --> AIThinking: 人間の手確定 & ゲーム継続
-    HumanTurn --> GameOver: 人間の手確定 & 勝敗決着
+    HumanTurn -- 人間の手確定, ゲーム継続 --> AIThinking
+    HumanTurn -- 人間の手確定, 勝敗決着 --> GameOver
 
-    AIThinking --> HumanTurn: AI配置＆検証完了 & ゲーム継続
-    AIThinking --> GameOver: AI配置＆検証完了 & 勝敗決着
-    AIThinking --> Resetting: エラー発生
+    AIThinking -- AI配置＋検証完了, ゲーム継続 --> HumanTurn
+    AIThinking -- AI配置＋検証完了, 勝敗決着 --> GameOver
+    AIThinking -- エラー発生 --> Resetting
 
-    GameOver --> Resetting: 5秒待機
+    GameOver -- 5秒待機 --> Resetting
 
-    Resetting --> Standby: リセット完了
+    Resetting -- リセット完了 --> Standby
+    Standby --> Start
 
-    HumanTurn --> Resetting: force_reset / 切断検知
-    AIThinking --> Resetting: force_reset / 切断検知
-    GameOver --> Resetting: force_reset
+    HumanTurn -- force_reset / 切断検知 --> Resetting
+    AIThinking -- force_reset / 切断検知 --> Resetting
+    GameOver -- force_reset --> Resetting
 ```
 
 ### 4.2 人間のターン（ポーリング監視）
