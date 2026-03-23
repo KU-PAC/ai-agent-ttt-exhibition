@@ -326,9 +326,10 @@ AI [neutral]: 「中央を取られたか。まずは様子を見よう。」
 Hexagonal Architectureに基づき、依存は常に内側（Domain）に向く。
 
 ```mermaid
-graph TB
-    subgraph "Adapter"
+graph LR
+    subgraph Adapter
         WSServer["ws_server.py<br/>WebSocket Server"]
+        ControlH["control_handler.py"]
         VisionAd["vision_adapter.py"]
         RobotAd["robot_adapter.py"]
         UnityAd["unity_adapter.py"]
@@ -336,22 +337,21 @@ graph TB
         LLMStrategy["llm_strategy.py"]
         AlgoStrategy["algorithm_strategy.py"]
         ReactionAd["llm_reaction_adapter.py"]
-        ControlH["control_handler.py"]
     end
 
-    subgraph "Application"
+    subgraph Application
         GM2["GameManager"]
         HT2["HumanTurnProcessor"]
         AT2["AITurnProcessor"]
-        Ports["ports.py<br/>AIStrategyPort / VisionPort / RobotPort / UnityPort / LLMClientPort / ReactionGeneratorPort"]
+        Ports["ports.py<br/>AIStrategyPort / VisionPort<br/>RobotPort / UnityPort<br/>LLMClientPort / ReactionGeneratorPort"]
     end
 
-    subgraph "Domain"
-        Board["board.py<br/>盤面Value Object"]
-        Rule["game_rule.py<br/>勝敗判定"]
+    subgraph Domain
         Phase["game_phase.py<br/>ステートマシン"]
-        Minimax["minimax.py<br/>探索アルゴリズム"]
+        Rule["game_rule.py<br/>勝敗判定"]
+        Board["board.py<br/>盤面Value Object"]
         EntAI["entertaining_ai.py<br/>接待AI"]
+        Minimax["minimax.py<br/>探索アルゴリズム"]
         Models["models.py<br/>共有モデル"]
     end
 
@@ -359,10 +359,10 @@ graph TB
     VisionAd --> Ports
     RobotAd --> Ports
     UnityAd --> Ports
+    LLMClient --> Ports
     LLMStrategy --> Ports
     AlgoStrategy --> Ports
     ReactionAd --> Ports
-    LLMClient --> Ports
 
     GM2 --> Ports
     HT2 --> Ports
