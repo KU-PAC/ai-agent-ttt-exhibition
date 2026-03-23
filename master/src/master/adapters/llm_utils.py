@@ -78,7 +78,11 @@ def analyze_move(board_before: Board, position: int, player: int) -> str:
     for line in WIN_LINES:
         a, b, c = line
         cells = [board_before.get(a), board_before.get(b), board_before.get(c)]
-        if cells.count(opponent) == 2 and position in line and board_before.get(position) == 0:
+        if (
+            cells.count(opponent) == 2
+            and position in line
+            and board_before.get(position) == 0
+        ):
             name = LINE_NAMES.get(line, "")
             notes.append(f"相手の{name}のリーチをブロックしました。")
 
