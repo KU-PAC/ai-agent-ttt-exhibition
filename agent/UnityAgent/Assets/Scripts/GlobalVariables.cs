@@ -22,6 +22,12 @@ public class PlayReactionPayload
 }
 
 [Serializable]
+public class BoardUpdatePayload
+{
+    public int[] board;
+}
+
+[Serializable]
 public class SendMessageFormat
 {
     public string type;
@@ -32,8 +38,10 @@ public static class GameEvents
 {
     public static event Action<SetStatePayload> OnSetState;
     public static event Action<PlayReactionPayload> OnPlayReaction;
+    public static event Action<int[]> OnBoardUpdate;
     public static void FireSetState(SetStatePayload payload) => OnSetState?.Invoke(payload);
     public static void FirePlayReaction(PlayReactionPayload payload) => OnPlayReaction?.Invoke(payload);
+    public static void FireBoardUpdate(int[] board) => OnBoardUpdate?.Invoke(board);
 }
 
 public static class GlobalVariables

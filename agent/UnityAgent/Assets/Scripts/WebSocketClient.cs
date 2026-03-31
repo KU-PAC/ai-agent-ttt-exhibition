@@ -181,6 +181,14 @@ public class WebSocketClient : MonoBehaviour
                     }
                     break;
 
+                case "board_update":
+                    var boardPayload = JsonUtility.FromJson<BoardUpdatePayload>(payloadJson);
+                    if (boardPayload != null && boardPayload.board != null && boardPayload.board.Length == 9)
+                    {
+                        GameEvents.FireBoardUpdate(boardPayload.board);
+                    }
+                    break;
+
                 default:
                     Debug.LogWarning($"Unknown message type: {msgType}");
                     break;

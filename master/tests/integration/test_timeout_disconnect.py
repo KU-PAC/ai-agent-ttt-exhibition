@@ -166,6 +166,8 @@ class TestGameOverFlow:
         state = gm.get_internal_state()
         assert state["board"] == [0] * 9
         assert len(unity.reaction_calls) >= 1
+        assert len(unity.board_calls) >= 3  # human, ai, human, ai, human moves + reset
+        assert unity.board_calls[-1] == [0] * 9  # last call is reset
 
 
 class TestGetInternalState:

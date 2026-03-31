@@ -79,6 +79,9 @@ class UnityPort(ABC):
         dialogue: str,
     ) -> None: ...
 
+    @abstractmethod
+    async def update_board(self, board: Board) -> None: ...
+
 
 class GameManagerProtocol(Protocol):
     async def start_game(self, first_turn: str) -> None: ...
