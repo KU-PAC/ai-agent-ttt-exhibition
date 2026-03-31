@@ -32,7 +32,7 @@ def extract_json(text: str) -> str:
 
 
 def parse_emotion(raw: str) -> Emotion:
-    return EMOTION_MAP.get(raw.lower(), Emotion.NEUTRAL)
+    return EMOTION_MAP.get(raw.lower(), Emotion.NORMAL)
 
 
 def render_board(board: Board, highlight: int | None = None) -> str:

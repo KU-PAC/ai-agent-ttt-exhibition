@@ -26,7 +26,7 @@ class MockAIStrategy(AIStrategyPort):
         empty = board.empty_cells()
         return AIDecision(
             next_move=empty[0],
-            emotion=Emotion.NEUTRAL,
+            emotion=Emotion.NORMAL,
             dialogue="テスト",
         )
 
@@ -34,7 +34,7 @@ class MockAIStrategy(AIStrategyPort):
 class MockReactionGenerator(ReactionGeneratorPort):
     def __init__(self, reaction: Reaction | None = None) -> None:
         self._reaction = reaction or Reaction(
-            emotion=Emotion.NEUTRAL,
+            emotion=Emotion.NORMAL,
             dialogue="テスト",
         )
 
@@ -69,4 +69,4 @@ class MockLLMClient(LLMClientPort):
         self.call_count += 1
         if self._responses:
             return self._responses.pop(0)
-        return '{"emotion": "neutral", "dialogue": "テスト"}'
+        return '{"emotion": "normal", "dialogue": "テスト"}'

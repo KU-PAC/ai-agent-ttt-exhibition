@@ -22,7 +22,7 @@ class TestAIVerificationUnit:
         strategy = MockAIStrategy()
         strategy.set_decisions(
             [
-                AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="t"),
+                AIDecision(next_move=4, emotion=Emotion.NORMAL, dialogue="t"),
             ]
         )
         wrong_board = board.set(0, 2)
@@ -42,7 +42,7 @@ class TestAIVerificationUnit:
         strategy = MockAIStrategy()
         strategy.set_decisions(
             [
-                AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="t"),
+                AIDecision(next_move=4, emotion=Emotion.NORMAL, dialogue="t"),
             ]
         )
         robot = MockRobot()
@@ -76,7 +76,7 @@ class TestAIVerificationGameManager:
         strategy = MockAIStrategy()
         strategy.set_decisions(
             [
-                AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="t"),
+                AIDecision(next_move=4, emotion=Emotion.NORMAL, dialogue="t"),
             ]
         )
         reaction_gen = MockReactionGenerator()
@@ -119,7 +119,7 @@ class TestAIVerificationGameManager:
         strategy = MockAIStrategy()
         strategy.set_decisions(
             [
-                AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="t"),
+                AIDecision(next_move=4, emotion=Emotion.NORMAL, dialogue="t"),
             ]
         )
         reaction_gen = MockReactionGenerator()

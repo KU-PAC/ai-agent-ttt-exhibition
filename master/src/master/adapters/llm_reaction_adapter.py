@@ -22,24 +22,24 @@ REACTION_SYSTEM_PROMPT = (
     "あなたが打つ手は既に決まっています。\n"
     "【打った後の盤面】を必ず確認し、この一手の結果に基づいて感情とセリフを返してください。\n"
     "判定の優先順位:\n"
-    "1. 打った後に✕が縦・横・斜めに3つ揃っていれば → あなたの勝ち → joy\n"
+    "1. 打った後に✕が縦・横・斜めに3つ揃っていれば → あなたの勝ち → happy\n"
     "2. 相手(〇)のリーチを防いだ手なら → angry (悔しい防御)\n"
-    "3. 自分が有利になった手なら → fun (余裕)\n"
-    "4. 不利な状況なら → sorrow\n"
-    "5. 序盤・様子見 → neutral\n\n"
+    "3. 自分が有利になった手なら → excited (余裕)\n"
+    "4. 不利な状況なら → sad\n"
+    "5. 序盤・様子見 → normal\n\n"
     "出力フォーマット（厳守・JSONのみ返答）:\n"
-    '{"emotion": "<joy|sorrow|angry|fun|neutral>", "dialogue": "<セリフ>"}'
+    '{"emotion": "<normal|happy|angry|sad|surprised|shy|excited|smug|calm>", "dialogue": "<セリフ>"}'
 )
 
 GAME_OVER_SYSTEM_PROMPT = (
     "あなたは〇✕ゲーム（三目並べ）のAIプレイヤー（✕）です。\n"
     "ゲームが終了しました。結果に応じた結びのセリフを返してください。\n"
     "感情の目安:\n"
-    "- joy: 勝った喜び\n"
-    "- sorrow: 負けた悔しさ\n"
-    "- fun: 引き分けの健闘を讃える\n\n"
+    "- happy: 勝った喜び\n"
+    "- sad: 負けた悔しさ\n"
+    "- calm: 引き分けの健闘を讃える\n\n"
     "出力フォーマット（厳守・JSONのみ返答）:\n"
-    '{"emotion": "<joy|sorrow|angry|fun|neutral>", "dialogue": "<セリフ>"}'
+    '{"emotion": "<normal|happy|angry|sad|surprised|shy|excited|smug|calm>", "dialogue": "<セリフ>"}'
 )
 
 RESULT_LABELS: dict[GameResult, str] = {
@@ -97,7 +97,7 @@ class LLMReactionAdapter(ReactionGeneratorPort):
             try:
                 content = await self._llm.chat(system, user_msg, self._timeout)
                 raw = json.loads(extract_json(content))
-                emotion = parse_emotion(str(raw.get("emotion", "neutral")))
+                emotion = parse_emotion(str(raw.get("emotion", "normal")))
                 dialogue = str(raw.get("dialogue", ""))
                 return Reaction(emotion=emotion, dialogue=dialogue)
             except Exception as e:

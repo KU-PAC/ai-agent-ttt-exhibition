@@ -14,18 +14,18 @@ class TestLLMParsing:
     def test_parse_valid_response(self):
         board = Board.from_list([1, 0, 0, 0, 0, 0, 0, 0, 0])
         decision = LLMStrategy._parse_response(
-            {"next_move": 4, "emotion": "joy", "dialogue": "ここだ！"},
+            {"next_move": 4, "emotion": "happy", "dialogue": "ここだ！"},
             board,
         )
         assert decision.next_move == 4
-        assert decision.emotion == Emotion.JOY
+        assert decision.emotion == Emotion.HAPPY
         assert decision.dialogue == "ここだ！"
 
     def test_parse_occupied_cell_raises(self):
         board = Board.from_list([1, 0, 0, 0, 0, 0, 0, 0, 0])
         with pytest.raises(Exception):
             LLMStrategy._parse_response(
-                {"next_move": 0, "emotion": "joy", "dialogue": "t"},
+                {"next_move": 0, "emotion": "happy", "dialogue": "t"},
                 board,
             )
 
@@ -33,7 +33,7 @@ class TestLLMParsing:
         board = Board.initial()
         with pytest.raises(Exception):
             LLMStrategy._parse_response(
-                {"next_move": 9, "emotion": "joy", "dialogue": "t"},
+                {"next_move": 9, "emotion": "happy", "dialogue": "t"},
                 board,
             )
 
@@ -43,7 +43,7 @@ class TestLLMFallback:
         board = Board.from_list([1, 2, 1, 2, 0, 0, 0, 0, 0])
         decision = LLMStrategy._fallback(board)
         assert decision.next_move in board.empty_cells()
-        assert decision.emotion == Emotion.NEUTRAL
+        assert decision.emotion == Emotion.NORMAL
         assert decision.dialogue != ""
 
     def test_fallback_unknown_emotion_defaults(self):
@@ -52,7 +52,7 @@ class TestLLMFallback:
             {"next_move": 0, "emotion": "unknown_emotion", "dialogue": "t"},
             board,
         )
-        assert decision.emotion == Emotion.NEUTRAL
+        assert decision.emotion == Emotion.NORMAL
 
 
 class TestLLMRetryLoop:
@@ -61,8 +61,8 @@ class TestLLMRetryLoop:
         board = Board.from_list([1, 0, 0, 0, 0, 0, 0, 0, 0])
         llm = MockLLMClient(
             responses=[
-                json.dumps({"next_move": 0, "emotion": "joy", "dialogue": "a"}),
-                json.dumps({"next_move": 4, "emotion": "joy", "dialogue": "b"}),
+                json.dumps({"next_move": 0, "emotion": "happy", "dialogue": "a"}),
+                json.dumps({"next_move": 4, "emotion": "happy", "dialogue": "b"}),
             ]
         )
         strategy = LLMStrategy(llm_client=llm, max_retries=3, timeout=5.0)
@@ -75,15 +75,15 @@ class TestLLMRetryLoop:
         board = Board.from_list([1, 0, 0, 0, 0, 0, 0, 0, 0])
         llm = MockLLMClient(
             responses=[
-                json.dumps({"next_move": 0, "emotion": "joy", "dialogue": "a"}),
-                json.dumps({"next_move": 0, "emotion": "joy", "dialogue": "b"}),
-                json.dumps({"next_move": 0, "emotion": "joy", "dialogue": "c"}),
+                json.dumps({"next_move": 0, "emotion": "happy", "dialogue": "a"}),
+                json.dumps({"next_move": 0, "emotion": "happy", "dialogue": "b"}),
+                json.dumps({"next_move": 0, "emotion": "happy", "dialogue": "c"}),
             ]
         )
         strategy = LLMStrategy(llm_client=llm, max_retries=3, timeout=5.0)
         decision = await strategy.decide(board, [])
         assert decision.next_move in board.empty_cells()
-        assert decision.emotion == Emotion.NEUTRAL
+        assert decision.emotion == Emotion.NORMAL
         assert llm.call_count == 3
 
     @pytest.mark.asyncio
@@ -99,7 +99,7 @@ class TestLLMRetryLoop:
         strategy = LLMStrategy(llm_client=llm, max_retries=3, timeout=5.0)
         decision = await strategy.decide(board, [])
         assert decision.next_move in board.empty_cells()
-        assert decision.emotion == Emotion.NEUTRAL
+        assert decision.emotion == Emotion.NORMAL
 
     @pytest.mark.asyncio
     async def test_fallback_game_continues(self):
@@ -114,7 +114,7 @@ class TestLLMRetryLoop:
         strategy = LLMStrategy(llm_client=llm, max_retries=3, timeout=5.0)
         decision = await strategy.decide(board, [])
         assert decision.next_move in board.empty_cells()
-        assert decision.emotion == Emotion.NEUTRAL
+        assert decision.emotion == Emotion.NORMAL
         assert llm.call_count == 3
 
 
@@ -122,13 +122,13 @@ class TestAlgorithmStrategyIntegration:
     @pytest.mark.asyncio
     async def test_algorithm_with_mock_reaction(self):
         board = Board.from_list([1, 0, 0, 0, 0, 0, 0, 0, 0])
-        reaction = Reaction(emotion=Emotion.FUN, dialogue="テスト")
+        reaction = Reaction(emotion=Emotion.EXCITED, dialogue="テスト")
         reaction_gen = MockReactionGenerator(reaction=reaction)
         strategy = AlgorithmStrategy(reaction_generator=reaction_gen)
 
         decision = await strategy.decide(board, [])
         assert decision.next_move in board.empty_cells()
-        assert decision.emotion == Emotion.FUN
+        assert decision.emotion == Emotion.EXCITED
         assert decision.dialogue == "テスト"
 
     @pytest.mark.asyncio
@@ -142,7 +142,7 @@ class TestAlgorithmStrategyIntegration:
         strategy = AlgorithmStrategy(reaction_generator=FailingReactionGen())
         decision = await strategy.decide(board, [])
         assert decision.next_move in board.empty_cells()
-        assert decision.emotion == Emotion.NEUTRAL
+        assert decision.emotion == Emotion.NORMAL
 
     @pytest.mark.asyncio
     async def test_algorithm_with_llm_client(self):
