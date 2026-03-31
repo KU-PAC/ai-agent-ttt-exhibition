@@ -105,6 +105,7 @@ class GameManager:
         self._board, position = await self._human_turn.execute(self._board)
         self._boards_history.append(board_before)
         self._move_history.append(Move(player=HUMAN, position=position))
+        await self._unity.update_board(self._board)
         log.info("Human placed at %d", position)
 
     async def _run_ai_turn(self) -> None:
@@ -115,6 +116,7 @@ class GameManager:
         if position is not None:
             self._boards_history.append(board_before)
             self._move_history.append(Move(player=AI, position=position))
+            await self._unity.update_board(self._board)
             log.info("AI placed at %d", position)
 
     async def _handle_game_over(self, result: GameResult) -> None:
@@ -158,6 +160,10 @@ class GameManager:
         self._phase = GamePhase.STANDBY
         self._move_history = []
         self._boards_history = []
+        try:
+            await self._unity.update_board(self._board)
+        except Exception:
+            log.warning("Unity board update failed during reset, continuing")
         log.info("Reset complete, now STANDBY")
 
     async def on_client_disconnected(self, client_type: str) -> None:

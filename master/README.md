@@ -86,6 +86,7 @@ graph TD
 3. 受信した盤面が「有効な手」（空きマスに人間のコマが1つだけ追加）かを判定
 4. 同一の有効な盤面が**2回連続**で確認できたら「安定」とみなし、手を確定
 5. 途中で盤面が変わった場合はカウントをリセットし、監視を継続
+6. Unityへ `board_update` で確定後の盤面を送信
 
 ### 4.3 AIのターン
 
@@ -106,6 +107,7 @@ sequenceDiagram
     M->>V: request_board_state
     V-->>M: 盤面返答
     Note over M: 想定盤面と一致か検証
+    M->>U: board_update(盤面)
 ```
 
 ### 4.4 勝敗決着時
@@ -114,7 +116,7 @@ sequenceDiagram
 2. Unityへ `play_reaction` で演出指示を送信
 3. **5秒間**待機（演出時間の確保）
 4. Robotへ `reset_robot`、Unityへ `set_state: "idle"` を送信
-5. 内部盤面をクリアし、Standbyへ遷移
+5. 内部盤面をクリアし、Unityへ `board_update` で空盤面を送信、Standbyへ遷移
 
 ## 5. 通信メッセージ一覧
 
@@ -138,7 +140,8 @@ sequenceDiagram
 | 方向 | type | payload |
 |---|---|---|
 | Master->Unity | `set_state` | `{"state": "thinking"}` |
-| Master->Unity | `play_reaction` | `{"emotion": "joy", "dialogue": "そこですか!"}` |
+| Master->Unity | `play_reaction` | `{"emotion": "happy", "dialogue": "そこですか!"}` |
+| Master->Unity | `board_update` | `{"board": [1,0,2,0,1,0,0,0,0]}` |
 
 **`state` の値:**
 
@@ -153,11 +156,15 @@ sequenceDiagram
 
 | emotion | 意味 | 発生タイミング |
 |---|---|---|
-| `joy` | 勝利・有利 | AI勝利時、有利な手を打った時 |
+| `happy` | 勝利・有利 | AI勝利時、有利な手を打った時 |
 | `angry` | 悔しい防御 | 相手のリーチをブロックした時 |
-| `sorrow` | 不利・追い詰められた | 劣勢の時 |
-| `fun` | 余裕 | 攻めの手を打った時 |
-| `neutral` | 様子見 | 序盤 |
+| `sad` | 不利・追い詰められた | 劣勢の時 |
+| `excited` | 余裕 | 攻めの手を打った時 |
+| `normal` | 様子見 | 序盤 |
+| `surprised` | 驚き | 予想外の手を打たれた時 |
+| `shy` | 照れ | 褒められるような手の時 |
+| `smug` | 得意げ | 有利な局面を作った時 |
+| `calm` | 穏やか | 引き分け確定時 |
 
 ### 5.4 制御API
 
@@ -229,7 +236,7 @@ Anthropicと OpenAI に対応、`.env` で切り替え可能。
 
 LLMが3回リトライしても有効な応答を返せない場合:
 - 手: 空きマスからランダムに選択
-- 感情: `neutral`
+- 感情: `normal`
 - セリフ: 定型文
 ```python
 FALLBACK_DIALOGUES: list[str] = [
@@ -318,10 +325,27 @@ uv run python -m simulator
 あなたの番です (0,1,2,3,4,5,6,7,8): 4
 
 AI思考中...
-AI [neutral]: 「中央を取られたか。まずは様子を見よう。」
+AI [normal]: 「中央を取られたか。まずは様子を見よう。」
 ```
 
-## 9. アーキテクチャ
+### 9.3 HWシミュレータ（REST API付き）
+
+Vision/Robotをソフトウェアでシミュレートし、REST APIで人間の手入力を受け付けるサーバー。
+Unityと組み合わせて、実機なしでフルシステムをテストできる。
+
+```bash
+# Master起動後に実行
+uv run uvicorn simulator.hw_simulator:app --port 8001
+```
+
+| エンドポイント | 説明 |
+|---|---|
+| `POST /game/start?first_turn=human` | ゲーム開始 |
+| `POST /game/human-move?position=4` | 人間の手入力 |
+| `POST /game/reset` | 強制リセット |
+| `GET /game/status` | 内部状態取得 |
+
+## 10. アーキテクチャ
 
 Hexagonal Architectureに基づき、依存は常に内側（Domain）に向く。
 

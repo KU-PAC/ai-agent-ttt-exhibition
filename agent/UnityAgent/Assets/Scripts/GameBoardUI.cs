@@ -16,6 +16,8 @@ public class GameBoardUI : MonoBehaviour
 
     private void Start()
     {
+        GameEvents.OnBoardUpdate += UpdateBoard;
+
         for (int i = 0; i < 9; i++)
         {
             if (cells != null && i < cells.Length && cells[i] != null)
@@ -24,6 +26,11 @@ public class GameBoardUI : MonoBehaviour
                 originalScales[i] = Vector3.one;
         }
         ClearBoard();
+    }
+
+    private void OnDestroy()
+    {
+        GameEvents.OnBoardUpdate -= UpdateBoard;
     }
 
     public void UpdateBoard(int[] board)

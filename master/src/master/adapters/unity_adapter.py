@@ -4,6 +4,7 @@ import logging
 
 from master.adapters.ws_server import ClientType, WebSocketServer
 from master.application.ports import UnityPort
+from master.domain.board import Board
 from master.domain.models import Emotion
 
 log = logging.getLogger(__name__)
@@ -29,5 +30,17 @@ class UnityWebSocketAdapter(UnityPort):
             {
                 "type": "play_reaction",
                 "payload": {"emotion": emotion.value, "dialogue": dialogue},
+            }
+        )
+
+    async def update_board(self, board: Board) -> None:
+        conn = self._ws_server.get_client(ClientType.UNITY)
+        if conn is None:
+            log.warning("Unity not connected, skipping update_board")
+            return
+        await conn.send(
+            {
+                "type": "board_update",
+                "payload": {"board": board.to_list()},
             }
         )
