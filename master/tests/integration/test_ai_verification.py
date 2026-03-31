@@ -1,6 +1,10 @@
 import asyncio
 
 import pytest
+from tests.mocks.mock_llm import MockAIStrategy, MockReactionGenerator
+from tests.mocks.mock_robot import MockRobot
+from tests.mocks.mock_unity import MockUnity
+from tests.mocks.mock_vision import MockVision
 
 from master.application.ai_turn import AITurnProcessor
 from master.application.game_manager import GameManager
@@ -9,10 +13,6 @@ from master.domain.board import Board
 from master.domain.errors import PlacementError
 from master.domain.game_phase import GamePhase
 from master.domain.models import AIDecision, Emotion, PlacementResult
-from tests.mocks.mock_llm import MockAIStrategy, MockReactionGenerator
-from tests.mocks.mock_robot import MockRobot
-from tests.mocks.mock_unity import MockUnity
-from tests.mocks.mock_vision import MockVision
 
 
 class TestAIVerificationUnit:

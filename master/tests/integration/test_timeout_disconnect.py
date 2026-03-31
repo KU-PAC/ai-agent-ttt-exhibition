@@ -1,6 +1,10 @@
 import asyncio
 
 import pytest
+from tests.mocks.mock_llm import MockAIStrategy, MockReactionGenerator
+from tests.mocks.mock_robot import MockRobot
+from tests.mocks.mock_unity import MockUnity
+from tests.mocks.mock_vision import MockVision
 
 from master.adapters.errors import RobotTimeoutError
 from master.application.ai_turn import AITurnProcessor
@@ -9,10 +13,6 @@ from master.application.human_turn import HumanTurnProcessor
 from master.domain.board import Board
 from master.domain.game_phase import GamePhase
 from master.domain.models import AIDecision, Emotion
-from tests.mocks.mock_llm import MockAIStrategy, MockReactionGenerator
-from tests.mocks.mock_robot import MockRobot
-from tests.mocks.mock_unity import MockUnity
-from tests.mocks.mock_vision import MockVision
 
 
 def _build_gm(

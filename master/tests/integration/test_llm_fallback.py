@@ -1,13 +1,13 @@
 import json
 
 import pytest
+from tests.mocks.mock_llm import MockLLMClient, MockReactionGenerator
 
 from master.adapters.algorithm_strategy import AlgorithmStrategy
 from master.adapters.llm_reaction_adapter import LLMReactionAdapter
 from master.adapters.llm_strategy import LLMStrategy
 from master.domain.board import Board
 from master.domain.models import Emotion, Reaction
-from tests.mocks.mock_llm import MockLLMClient, MockReactionGenerator
 
 
 class TestLLMParsing:
