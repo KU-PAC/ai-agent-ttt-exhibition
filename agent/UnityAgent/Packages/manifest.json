@@ -1,10 +1,10 @@
 {
   "dependencies": {
-    "com.unity.burst": "1.8.18",
-    "com.unity.collab-proxy": "2.6.0",
+    "com.unity.burst": "1.8.21",
+    "com.unity.collab-proxy": "2.7.1",
     "com.unity.feature.development": "1.0.1",
-    "com.unity.textmeshpro": "3.0.6",
-    "com.unity.timeline": "1.7.6",
+    "com.unity.textmeshpro": "3.0.7",
+    "com.unity.timeline": "1.7.7",
     "com.unity.ugui": "1.0.0",
     "com.unity.visualscripting": "1.9.4",
     "com.unity.webrtc": "3.0.0-pre.8",
@@ -39,7 +39,8 @@
     "com.unity.modules.video": "1.0.0",
     "com.unity.modules.vr": "1.0.0",
     "com.unity.modules.wind": "1.0.0",
-    "com.unity.modules.xr": "1.0.0"
+    "com.unity.modules.xr": "1.0.0",
+    "com.ivanmurzak.unity.mcp": "0.63.2"
   },
   "scopedRegistries": [
     {
@@ -47,6 +48,18 @@
       "url": "https://package.openupm.com",
       "scopes": [
         "com.cysharp.unitask"
+      ]
+    },
+    {
+      "name": "package.openupm.com",
+      "url": "https://package.openupm.com",
+      "scopes": [
+        "com.ivanmurzak",
+        "extensions.unity",
+        "org.nuget.com.ivanmurzak",
+        "org.nuget.microsoft",
+        "org.nuget.system",
+        "org.nuget.r3"
       ]
     }
   ]
