@@ -97,7 +97,7 @@ class TestRobotTimeout:
         strategy = MockAIStrategy()
         strategy.set_decisions(
             [
-                AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="t"),
+                AIDecision(next_move=4, emotion=Emotion.NORMAL, dialogue="t"),
             ]
         )
 
@@ -122,8 +122,8 @@ class TestGameOverFlow:
             Board.from_list([1, 1, 1, 2, 2, 0, 0, 0, 0]),
         ]
         ai_decisions = [
-            AIDecision(next_move=3, emotion=Emotion.NEUTRAL, dialogue="t"),
-            AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="t"),
+            AIDecision(next_move=3, emotion=Emotion.NORMAL, dialogue="t"),
+            AIDecision(next_move=4, emotion=Emotion.NORMAL, dialogue="t"),
         ]
         vision_responses = [
             human_boards[0],

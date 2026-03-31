@@ -33,7 +33,7 @@ class TestAITurnProcessor:
         strategy = MockAIStrategy()
         strategy.set_decisions(
             [
-                AIDecision(next_move=4, emotion=Emotion.JOY, dialogue="ここだ！"),
+                AIDecision(next_move=4, emotion=Emotion.HAPPY, dialogue="ここだ！"),
             ]
         )
         vision = MockVision(responses=[expected_board])
@@ -45,7 +45,7 @@ class TestAITurnProcessor:
         assert result == expected_board
         assert "thinking" in unity.state_calls
         assert len(unity.reaction_calls) == 1
-        assert unity.reaction_calls[0][0] == Emotion.JOY
+        assert unity.reaction_calls[0][0] == Emotion.HAPPY
 
     @pytest.mark.asyncio
     async def test_robot_failure_raises(self):
@@ -53,7 +53,7 @@ class TestAITurnProcessor:
         strategy = MockAIStrategy()
         strategy.set_decisions(
             [
-                AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="test"),
+                AIDecision(next_move=4, emotion=Emotion.NORMAL, dialogue="test"),
             ]
         )
         robot = MockRobot()
@@ -71,7 +71,7 @@ class TestAITurnProcessor:
         strategy = MockAIStrategy()
         strategy.set_decisions(
             [
-                AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="test"),
+                AIDecision(next_move=4, emotion=Emotion.NORMAL, dialogue="test"),
             ]
         )
         wrong_board = board.set(0, 2)

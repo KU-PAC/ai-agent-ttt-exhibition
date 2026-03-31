@@ -20,7 +20,7 @@ SYSTEM_PROMPT = (
     "盤面の値: 0=空き, 1=人間(〇), 2=AI(✕)\n"
     "配列インデックス:\n[0][1][2]\n[3][4][5]\n[6][7][8]\n\n"
     "出力フォーマット（厳守・JSONのみ返答）:\n"
-    '{"next_move": <0~8の整数>, "emotion": "<joy|sorrow|angry|fun|neutral>", '
+    '{"next_move": <0~8の整数>, "emotion": "<normal|happy|angry|sad|surprised|shy|excited|smug|calm>", '
     '"dialogue": "<セリフ>"}'
 )
 
@@ -80,7 +80,7 @@ class LLMStrategy(AIStrategyPort):
             raise LLMInvalidResponseError(
                 f"Invalid move {next_move}: cell not empty or out of range"
             )
-        emotion = parse_emotion(str(raw.get("emotion", "neutral")))
+        emotion = parse_emotion(str(raw.get("emotion", "normal")))
         dialogue = str(raw.get("dialogue", ""))
         return AIDecision(next_move=next_move, emotion=emotion, dialogue=dialogue)
 

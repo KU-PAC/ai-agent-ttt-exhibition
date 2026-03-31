@@ -6,11 +6,15 @@ from enum import Enum
 
 
 class Emotion(Enum):
-    JOY = "joy"
-    SORROW = "sorrow"
+    NORMAL = "normal"
+    HAPPY = "happy"
     ANGRY = "angry"
-    FUN = "fun"
-    NEUTRAL = "neutral"
+    SAD = "sad"
+    SURPRISED = "surprised"
+    SHY = "shy"
+    EXCITED = "excited"
+    SMUG = "smug"
+    CALM = "calm"
 
 
 class GameResult(Enum):
@@ -46,7 +50,7 @@ class Move:
     position: int  # 0~8
 
 
-FALLBACK_EMOTION: Emotion = Emotion.NEUTRAL
+FALLBACK_EMOTION: Emotion = Emotion.NORMAL
 
 FALLBACK_DIALOGUES: list[str] = [
     "なるほど、ではこちらにしましょう",

@@ -53,8 +53,8 @@ class TestNormalGame:
             Board.from_list([1, 1, 1, 2, 2, 0, 0, 0, 0]),
         ]
         ai_decisions = [
-            AIDecision(next_move=3, emotion=Emotion.NEUTRAL, dialogue="t"),
-            AIDecision(next_move=4, emotion=Emotion.NEUTRAL, dialogue="t"),
+            AIDecision(next_move=3, emotion=Emotion.NORMAL, dialogue="t"),
+            AIDecision(next_move=4, emotion=Emotion.NORMAL, dialogue="t"),
         ]
 
         vision_responses = [
@@ -99,9 +99,9 @@ class TestNormalGame:
             human_move3,
         ]
         ai_decisions = [
-            AIDecision(next_move=4, emotion=Emotion.FUN, dialogue="t"),
-            AIDecision(next_move=3, emotion=Emotion.FUN, dialogue="t"),
-            AIDecision(next_move=6, emotion=Emotion.FUN, dialogue="t"),
+            AIDecision(next_move=4, emotion=Emotion.EXCITED, dialogue="t"),
+            AIDecision(next_move=3, emotion=Emotion.EXCITED, dialogue="t"),
+            AIDecision(next_move=6, emotion=Emotion.EXCITED, dialogue="t"),
         ]
 
         gm, *_ = _build_game(vision_responses, ai_decisions)
