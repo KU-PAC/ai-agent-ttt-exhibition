@@ -38,26 +38,29 @@ public class WebSocketClient : MonoBehaviour
     {
         if (isConnecting) return;
         isConnecting = true;
-        webSocket = new ClientWebSocket();
-        Uri serverUri = new Uri(serverUrl);
-        try
+
+        while (!isQuitting)
         {
-            await webSocket.ConnectAsync(serverUri, CancellationToken.None);
-            Debug.Log("Connected to Master server");
-            isConnected = true;
-            StartReceiving();
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"WebSocket connection error: {e.Message}");
             Cleanup();
-            await Task.Delay(5000);
-            await ConnectToServer();
+            webSocket = new ClientWebSocket();
+            try
+            {
+                await webSocket.ConnectAsync(new Uri(serverUrl), CancellationToken.None);
+                Debug.Log("Connected to Master server");
+                isConnected = true;
+                isConnecting = false;
+                StartReceiving();
+                return;
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"WebSocket connection failed: {e.Message} — retrying in 3s");
+                Cleanup();
+                await Task.Delay(3000);
+            }
         }
-        finally
-        {
-            isConnecting = false;
-        }
+
+        isConnecting = false;
     }
 
     private void Cleanup()

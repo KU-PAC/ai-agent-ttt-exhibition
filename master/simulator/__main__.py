@@ -10,10 +10,11 @@ from websockets.asyncio.client import connect
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from simulator.board_ui import prompt_human_move, render_board, render_index_guide
+
 from master.domain.board import Board
 from master.domain.game_rule import judge
 from master.domain.models import GameResult
-from simulator.board_ui import prompt_human_move, render_board, render_index_guide
 
 logging.basicConfig(
     level=logging.WARNING,

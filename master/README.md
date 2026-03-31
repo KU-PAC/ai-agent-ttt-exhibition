@@ -328,22 +328,19 @@ AI思考中...
 AI [normal]: 「中央を取られたか。まずは様子を見よう。」
 ```
 
-### 9.3 HWシミュレータ（REST API付き）
+### 9.3 HWシミュレータ
 
-Vision/Robotをソフトウェアでシミュレートし、REST APIで人間の手入力を受け付けるサーバー。
-Unityと組み合わせて、実機なしでフルシステムをテストできる。
+Vision/Robotをソフトウェアでシミュレートし、ブラウザUIで人間の手入力を受け付けるツール。
+スクリプト1つで Master + HW シミュレータの起動、ブラウザ表示まで行える。
 
 ```bash
-# Master起動後に実行
-uv run uvicorn simulator.hw_simulator:app --port 8001
+bash simulator/hw/start.sh
 ```
 
-| エンドポイント | 説明 |
-|---|---|
-| `POST /game/start?first_turn=human` | ゲーム開始 |
-| `POST /game/human-move?position=4` | 人間の手入力 |
-| `POST /game/reset` | 強制リセット |
-| `GET /game/status` | 内部状態取得 |
+- ブラウザで `http://localhost:8001` が自動で開く
+- **Start** ボタン → マス目クリックで対戦
+- Unity を Play モードにすれば 3D キャラの演出も同時確認可能
+- `Ctrl+C` で Master / HW シミュレータのみ終了（Unity は影響なし）
 
 ## 10. アーキテクチャ
 

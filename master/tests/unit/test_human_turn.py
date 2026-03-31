@@ -1,8 +1,8 @@
 import pytest
+from tests.mocks.mock_vision import MockVision
 
 from master.application.human_turn import HumanTurnProcessor
 from master.domain.board import Board
-from tests.mocks.mock_vision import MockVision
 
 
 class TestHumanTurnProcessor:

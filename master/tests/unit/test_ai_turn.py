@@ -1,13 +1,13 @@
 import pytest
+from tests.mocks.mock_llm import MockAIStrategy
+from tests.mocks.mock_robot import MockRobot
+from tests.mocks.mock_unity import MockUnity
+from tests.mocks.mock_vision import MockVision
 
 from master.application.ai_turn import AITurnProcessor
 from master.domain.board import Board
 from master.domain.errors import PlacementError
 from master.domain.models import AIDecision, Emotion, PlacementResult
-from tests.mocks.mock_llm import MockAIStrategy
-from tests.mocks.mock_robot import MockRobot
-from tests.mocks.mock_unity import MockUnity
-from tests.mocks.mock_vision import MockVision
 
 
 def _make_processor(

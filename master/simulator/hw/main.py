@@ -1,24 +1,14 @@
-"""
-ハードウェアシミュレーター (Vision + Robot モック)
-
-Master に Vision / Robot クライアントとして接続し、
-REST API で人間の手入力を受け付ける。
-
-本番時はこのプロセスの代わりに実機カメラ・アームが Master に接続する。
-
-起動: uv run uvicorn simulator.hw_simulator:app --port 8001
-前提: Master が ws://localhost:8765 で起動済みであること
-"""
-
 import asyncio
 import json
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from websockets.asyncio.client import connect, ClientConnection
+from fastapi.responses import HTMLResponse
+from websockets.asyncio.client import ClientConnection, connect
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,7 +17,6 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 EMPTY, HUMAN, AI = 0, 1, 2
-CELL_SYMBOLS = {EMPTY: "＿", HUMAN: "〇", AI: "✕"}
 MASTER_URL = os.environ.get("MASTER_URL", "ws://localhost:8765")
 
 
@@ -73,28 +62,40 @@ class HardwareSimulator:
     async def start_game(self, first_turn: str) -> None:
         self._board = [EMPTY] * 9
         async with connect(f"{self._master_url}/control") as ws:
-            await ws.send(json.dumps({
-                "type": "start_game",
-                "payload": {"first_turn": first_turn},
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "start_game",
+                        "payload": {"first_turn": first_turn},
+                    }
+                )
+            )
         log.info("Game started (first_turn=%s)", first_turn)
 
     async def force_reset(self) -> None:
         async with connect(f"{self._master_url}/control") as ws:
-            await ws.send(json.dumps({
-                "type": "force_reset",
-                "payload": {},
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "force_reset",
+                        "payload": {},
+                    }
+                )
+            )
         self._board = [EMPTY] * 9
         log.info("Force reset")
 
     async def get_internal_state(self) -> dict:
         try:
             async with connect(f"{self._master_url}/control") as ws:
-                await ws.send(json.dumps({
-                    "type": "get_internal_state",
-                    "payload": {},
-                }))
+                await ws.send(
+                    json.dumps(
+                        {
+                            "type": "get_internal_state",
+                            "payload": {},
+                        }
+                    )
+                )
                 raw = await asyncio.wait_for(ws.recv(), timeout=5.0)
                 msg = json.loads(raw)
                 if msg.get("type") == "internal_state_response":
@@ -108,10 +109,14 @@ class HardwareSimulator:
             async for raw in self._vision_ws:
                 msg = json.loads(raw)
                 if msg.get("type") == "request_board_state":
-                    await self._vision_ws.send(json.dumps({
-                        "type": "board_state_response",
-                        "payload": {"board": list(self._board)},
-                    }))
+                    await self._vision_ws.send(
+                        json.dumps(
+                            {
+                                "type": "board_state_response",
+                                "payload": {"board": list(self._board)},
+                            }
+                        )
+                    )
         except asyncio.CancelledError:
             return
         except Exception as e:
@@ -128,14 +133,18 @@ class HardwareSimulator:
                     piece = msg["payload"].get("piece_type", AI)
                     self._board[pos] = piece
                     log.info("Robot placed piece_type=%d at %d", piece, pos)
-                    await self._robot_ws.send(json.dumps({
-                        "type": "placement_result",
-                        "payload": {
-                            "success": True,
-                            "position": pos,
-                            "error_detail": None,
-                        },
-                    }))
+                    await self._robot_ws.send(
+                        json.dumps(
+                            {
+                                "type": "placement_result",
+                                "payload": {
+                                    "success": True,
+                                    "position": pos,
+                                    "error_detail": None,
+                                },
+                            }
+                        )
+                    )
 
                 elif msg_type == "reset_robot":
                     self._board = [EMPTY] * 9
@@ -149,13 +158,7 @@ class HardwareSimulator:
 
 hw: HardwareSimulator | None = None
 
-
-def _render(cells: list[int]) -> str:
-    rows = []
-    for r in range(3):
-        parts = [f" {CELL_SYMBOLS.get(cells[r * 3 + c], '?')} " for c in range(3)]
-        rows.append("|".join(parts))
-    return "\n----+----+----\n".join(rows)
+_HTML = (Path(__file__).parent / "index.html").read_text
 
 
 @asynccontextmanager
@@ -176,8 +179,15 @@ async def lifespan(app: FastAPI):
         await hw.disconnect()
 
 
-app = FastAPI(title="Hardware Simulator (Vision + Robot)", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title="Hardware Simulator", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+)
+
+
+@app.get("/", response_class=HTMLResponse)
+async def ui():
+    return (Path(__file__).parent / "index.html").read_text()
 
 
 @app.post("/game/start")
@@ -204,7 +214,7 @@ async def reset():
 @app.get("/game/status")
 async def get_status():
     state = await hw.get_internal_state()
-    return {**state, "board_display": _render(state.get("board", hw.board))}
+    return {**state, "local_board": hw.board}
 
 
 @app.get("/health")
