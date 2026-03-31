@@ -1,11 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-/// <summary>
-/// 三目並べの盤面をUI上に表示するコンポーネント.
-/// 3×3 のRawImageセルを使い、駒の種類に応じて色を変化させる.
-/// GameEvents.OnSpeech / OnGameStart / OnGameOver を購読して自動更新する.
-/// </summary>
 public class GameBoardUI : MonoBehaviour
 {
     [Header("セル設定 (左上から右下の順に 9 つ割り当て)")]
@@ -13,20 +8,14 @@ public class GameBoardUI : MonoBehaviour
 
     [Header("色設定")]
     [SerializeField] private Color emptyColor = new Color(0.3f, 0.3f, 0.3f, 0.3f);
-    [SerializeField] private Color oColor = new Color(0.2f, 0.6f, 1.0f, 1.0f);   // 青系 (AI)
-    [SerializeField] private Color xColor = new Color(1.0f, 0.3f, 0.3f, 1.0f);   // 赤系 (相手)
+    [SerializeField] private Color humanColor = new Color(0.2f, 0.6f, 1.0f, 1.0f);  // 青系: 人間(〇) = 1
+    [SerializeField] private Color aiColor = new Color(1.0f, 0.3f, 0.3f, 1.0f);     // 赤系: AI(✕) = 2
 
-    private string[] lastBoard = new string[9];
+    private int[] lastBoard = new int[9];
     private Vector3[] originalScales = new Vector3[9];
 
     private void Start()
     {
-        // イベント購読
-        GameEvents.OnSpeech += OnSpeechReceived;
-        GameEvents.OnGameStart += OnGameStart;
-        GameEvents.OnGameOver += OnGameOver;
-
-        // 元のスケールを保存
         for (int i = 0; i < 9; i++)
         {
             if (cells != null && i < cells.Length && cells[i] != null)
@@ -34,55 +23,10 @@ public class GameBoardUI : MonoBehaviour
             else
                 originalScales[i] = Vector3.one;
         }
-
-        // 初期表示 (空盤面)
         ClearBoard();
     }
 
-    private void OnDestroy()
-    {
-        GameEvents.OnSpeech -= OnSpeechReceived;
-        GameEvents.OnGameStart -= OnGameStart;
-        GameEvents.OnGameOver -= OnGameOver;
-    }
-
-    // ===== イベントハンドラ =====
-
-    private void OnSpeechReceived(SpeechPayload payload)
-    {
-        if (payload.board != null && payload.board.Length == 9)
-        {
-            UpdateBoard(payload.board);
-        }
-    }
-
-    private void OnGameStart(GameStartPayload payload)
-    {
-        if (payload.board != null && payload.board.Length == 9)
-        {
-            UpdateBoard(payload.board);
-        }
-        else
-        {
-            ClearBoard();
-        }
-    }
-
-    private void OnGameOver(GameOverPayload payload)
-    {
-        if (payload.board != null && payload.board.Length == 9)
-        {
-            UpdateBoard(payload.board);
-        }
-    }
-
-    // ===== 盤面更新 =====
-
-    /// <summary>
-    /// 盤面を更新する
-    /// </summary>
-    /// <param name="board">9要素の配列: "", "O", "X"</param>
-    public void UpdateBoard(string[] board)
+    public void UpdateBoard(int[] board)
     {
         if (board == null || board.Length != 9) return;
         if (cells == null || cells.Length != 9) return;
@@ -91,36 +35,33 @@ public class GameBoardUI : MonoBehaviour
         {
             if (cells[i] == null) continue;
 
-            string mark = board[i];
-            bool isNew = (mark != lastBoard[i]);
+            int cell = board[i];
+            bool isNew = (cell != lastBoard[i]);
 
-            if (string.IsNullOrEmpty(mark))
+            switch (cell)
             {
-                cells[i].color = emptyColor;
-            }
-            else if (mark == "O")
-            {
-                cells[i].color = oColor;
-                if (isNew) AnimateCell(cells[i], i);
-            }
-            else if (mark == "X")
-            {
-                cells[i].color = xColor;
-                if (isNew) AnimateCell(cells[i], i);
+                case 1: // Human(〇)
+                    cells[i].color = humanColor;
+                    if (isNew) AnimateCell(cells[i], i);
+                    break;
+                case 2: // AI(✕)
+                    cells[i].color = aiColor;
+                    if (isNew) AnimateCell(cells[i], i);
+                    break;
+                default: // 0 = empty
+                    cells[i].color = emptyColor;
+                    break;
             }
 
-            lastBoard[i] = mark ?? "";
+            lastBoard[i] = cell;
         }
     }
 
-    /// <summary>
-    /// 盤面をクリアする
-    /// </summary>
     public void ClearBoard()
     {
         for (int i = 0; i < 9; i++)
         {
-            lastBoard[i] = "";
+            lastBoard[i] = 0;
             if (cells != null && i < cells.Length && cells[i] != null)
             {
                 cells[i].color = emptyColor;
@@ -129,11 +70,6 @@ public class GameBoardUI : MonoBehaviour
         }
     }
 
-    // ===== アニメーション =====
-
-    /// <summary>
-    /// セルに新しい駒が置かれた時のスケールアニメーション
-    /// </summary>
     private void AnimateCell(RawImage cell, int index)
     {
         cell.transform.localScale = originalScales[index] * 0.5f;
@@ -151,7 +87,6 @@ public class GameBoardUI : MonoBehaviour
         {
             elapsed += Time.deltaTime;
             float t = elapsed / duration;
-            // EaseOutBack カーブ
             float overshoot = 1.70158f;
             t = t - 1f;
             float eased = t * t * ((overshoot + 1f) * t + overshoot) + 1f;

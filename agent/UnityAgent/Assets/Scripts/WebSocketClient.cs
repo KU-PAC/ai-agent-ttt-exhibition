@@ -8,42 +8,31 @@ using System.Net.WebSockets;
 public class WebSocketClient : MonoBehaviour
 {
     [SerializeField] private bool DEBUG = false;
-    [SerializeField] private string serverUrl = "ws://localhost:8000/ws/unity";
+    [SerializeField] private string serverUrl = "ws://localhost:8765/unity";
     private ClientWebSocket webSocket;
     private bool isConnecting = false;
     private bool isConnected = false;
     private bool isQuitting = false;
 
-    // ===== デバッグ用 =====
-
     private void AddDebugMessages()
     {
-        // speech メッセージのデバッグ
-        var payload = new SpeechPayload
+        var payload = new PlayReactionPayload
         {
             emotion = "happy",
-            speech = "皆さん、今日も元気ですか？ 私は元気です！",
-            board = new string[] { "", "", "", "", "", "", "", "", "" },
-            board_state = ""
+            dialogue = "皆さん、今日も元気ですか？ 私は元気です！"
         };
-        GlobalVariables.SpeechQueue.Add(payload);
+        GlobalVariables.ReactionQueue.Add(payload);
     }
-
-    // ===== ライフサイクル =====
 
     async void Start()
     {
         if (DEBUG)
         {
             AddDebugMessages();
-            Debug.Log("Debug mode: Added test messages to queues");
             return;
         }
-
         await ConnectToServer();
     }
-
-    // ===== WebSocket 接続管理 =====
 
     private async Task ConnectToServer()
     {
@@ -54,7 +43,7 @@ public class WebSocketClient : MonoBehaviour
         try
         {
             await webSocket.ConnectAsync(serverUri, CancellationToken.None);
-            Debug.Log("Connected to server");
+            Debug.Log("Connected to Master server");
             isConnected = true;
             StartReceiving();
         }
@@ -92,8 +81,6 @@ public class WebSocketClient : MonoBehaviour
         isConnected = false;
     }
 
-    // ===== メッセージ送信 =====
-
     public async Task SendMessage(string type, string payloadJson = "{}")
     {
         if (webSocket == null || webSocket.State != WebSocketState.Open)
@@ -112,8 +99,6 @@ public class WebSocketClient : MonoBehaviour
         await webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
         Debug.Log($"Message sent: {jsonMessage}");
     }
-
-    // ===== メッセージ受信 =====
 
     private async void StartReceiving()
     {
@@ -161,16 +146,10 @@ public class WebSocketClient : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// 受信した {type, payload} メッセージを type に応じて振り分ける
-    /// </summary>
     private void DispatchMessage(string jsonMessage)
     {
         try
         {
-            // まず type を取得するためにパース
-            // JsonUtility はネストした JSON オブジェクトを文字列として扱えないため、
-            // 手動で type と payload を抽出する
             string msgType = ExtractJsonStringField(jsonMessage, "type");
             string payloadJson = ExtractJsonObjectField(jsonMessage, "payload");
 
@@ -184,59 +163,21 @@ public class WebSocketClient : MonoBehaviour
 
             switch (msgType)
             {
-                case "speech":
-                    var speechPayload = JsonUtility.FromJson<SpeechPayload>(payloadJson);
-                    if (speechPayload != null)
+                case "set_state":
+                    var statePayload = JsonUtility.FromJson<SetStatePayload>(payloadJson);
+                    if (statePayload != null)
                     {
-                        // 盤面を更新
-                        if (speechPayload.board != null && speechPayload.board.Length == 9)
-                        {
-                            Array.Copy(speechPayload.board, GlobalVariables.CurrentBoard, 9);
-                        }
-                        GlobalVariables.SpeechQueue.Add(speechPayload);
-                        GameEvents.FireSpeech(speechPayload);
+                        GlobalVariables.CurrentState = statePayload.state;
+                        GameEvents.FireSetState(statePayload);
                     }
                     break;
 
-                case "game_start":
-                    var startPayload = JsonUtility.FromJson<GameStartPayload>(payloadJson);
-                    if (startPayload != null)
+                case "play_reaction":
+                    var reactionPayload = JsonUtility.FromJson<PlayReactionPayload>(payloadJson);
+                    if (reactionPayload != null)
                     {
-                        GlobalVariables.IsGameActive = true;
-                        if (startPayload.board != null && startPayload.board.Length == 9)
-                        {
-                            Array.Copy(startPayload.board, GlobalVariables.CurrentBoard, 9);
-                        }
-                        GameEvents.FireGameStart(startPayload);
-                    }
-                    break;
-
-                case "game_over":
-                    var overPayload = JsonUtility.FromJson<GameOverPayload>(payloadJson);
-                    if (overPayload != null)
-                    {
-                        GlobalVariables.IsGameActive = false;
-                        if (overPayload.board != null && overPayload.board.Length == 9)
-                        {
-                            Array.Copy(overPayload.board, GlobalVariables.CurrentBoard, 9);
-                        }
-                        GameEvents.FireGameOver(overPayload);
-                    }
-                    break;
-
-                case "placement_failure":
-                    var failPayload = JsonUtility.FromJson<PlacementFailurePayload>(payloadJson);
-                    if (failPayload != null)
-                    {
-                        GameEvents.FirePlacementFailure(failPayload);
-                    }
-                    break;
-
-                case "error":
-                    var errorPayload = JsonUtility.FromJson<ErrorPayload>(payloadJson);
-                    if (errorPayload != null)
-                    {
-                        GameEvents.FireError(errorPayload);
+                        GlobalVariables.ReactionQueue.Add(reactionPayload);
+                        GameEvents.FirePlayReaction(reactionPayload);
                     }
                     break;
 
@@ -251,13 +192,6 @@ public class WebSocketClient : MonoBehaviour
         }
     }
 
-    // ===== JSON ヘルパー =====
-    // JsonUtility はネストオブジェクトをフラットにしか扱えないため、
-    // 手動で簡易パースを行う
-
-    /// <summary>
-    /// JSON文字列から指定したキーの文字列値を抽出する (簡易パーサー)
-    /// </summary>
     private string ExtractJsonStringField(string json, string fieldName)
     {
         string pattern = $"\"{fieldName}\"";
@@ -276,10 +210,6 @@ public class WebSocketClient : MonoBehaviour
         return json.Substring(startQuote + 1, endQuote - startQuote - 1);
     }
 
-    /// <summary>
-    /// JSON文字列から指定したキーのオブジェクト値を抽出する (簡易パーサー)
-    /// ネストされた {} を正しくカウントして抽出する
-    /// </summary>
     private string ExtractJsonObjectField(string json, string fieldName)
     {
         string pattern = $"\"{fieldName}\"";
@@ -289,11 +219,9 @@ public class WebSocketClient : MonoBehaviour
         int colonIndex = json.IndexOf(':', keyIndex + pattern.Length);
         if (colonIndex < 0) return "{}";
 
-        // コロンの後の最初の '{' を見つける
         int braceStart = json.IndexOf('{', colonIndex + 1);
         if (braceStart < 0) return "{}";
 
-        // 対応する '}' を見つける (ネスト対応)
         int depth = 0;
         bool inString = false;
         bool escaped = false;
@@ -332,8 +260,6 @@ public class WebSocketClient : MonoBehaviour
         return "{}";
     }
 
-    // ===== 切断ハンドリング =====
-
     private async Task HandleDisconnection()
     {
         Cleanup();
@@ -343,15 +269,10 @@ public class WebSocketClient : MonoBehaviour
             await Task.Delay(3000);
             await ConnectToServer();
         }
-        else
-        {
-            Debug.Log("Application is quitting - skipping reconnection");
-        }
     }
 
     private void OnApplicationQuit()
     {
-        Debug.Log("Application quitting - cleaning up WebSocket connection");
         isQuitting = true;
         Cleanup();
     }
