@@ -53,11 +53,6 @@ class TestSelectMove:
         assert pos == 2
         assert check_winner(board.set(pos, 2)) == 2
 
-    def test_skips_winning_in_entertaining_mode(self):
-        board = Board.from_list([2, 2, 0, 1, 1, 0, 0, 0, 0])
-        pos = select_move(board, [], [])
-        assert pos != 2
-
     def test_blocks_human_win(self):
         board = Board.from_list([1, 1, 0, 2, 0, 0, 0, 0, 0])
         pos = select_move(board, [], [])

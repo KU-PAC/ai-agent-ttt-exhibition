@@ -97,5 +97,7 @@ def analyze_move(board_before: Board, position: int, player: int) -> str:
         total = sum(1 for i in range(9) if board_before.get(i) != 0)
         if total <= 2:
             notes.append("序盤の一手です。")
+        else:
+            notes.append("特に大きな動きのない一手です。")
 
     return "\n".join(notes)

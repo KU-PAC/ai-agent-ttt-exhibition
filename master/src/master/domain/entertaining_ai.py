@@ -84,15 +84,16 @@ def select_move(
     if not scored:
         return board.empty_cells()[0]
 
+    winning_moves = [m for m in scored if m.is_winning]
+    if winning_moves:
+        return winning_moves[0].position
+
     blocking_moves = [m for m in scored if m.is_blocking]
     if blocking_moves:
         return blocking_moves[0].position
 
     last_human_quality = _last_human_quality(move_history, boards_history)
     if last_human_quality in (MoveQuality.MISTAKE, MoveQuality.BLUNDER):
-        winning_moves = [m for m in scored if m.is_winning]
-        if winning_moves:
-            return winning_moves[0].position
         return scored[0].position
 
     skill = estimate_skill(move_history, boards_history)
