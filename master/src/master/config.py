@@ -39,7 +39,7 @@ class Config:
     llm_timeout: float = 10.0
     llm_max_retries: int = 3
     llm_max_tokens: int = 256
-    llm_temperature: float = 0.8
+    llm_temperature: float = 1.0
     robot_timeout: float = 30.0
     poll_interval: float = 1.0
     stable_count_required: int = 2
