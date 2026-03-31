@@ -1,151 +1,58 @@
-# sushitech_agent
+# Unity Agent (3Dキャラクター演出)
 
-## setup
-```bash
-uv sync
+Masterモジュールの `/unity` エンドポイントに直接接続し、`set_state` / `play_reaction` を受信して3Dキャラクターの演出を行う。
+
+## アーキテクチャ（本番同等）
+
+```
+[Master :8765]
+ ├── /vision ← カメラモジュール (本番) / HWシミュレータ (開発)
+ ├── /robot  ← アームロボット (本番) / HWシミュレータ (開発)
+ ├── /unity  ← Unity (本プロジェクト、直接接続)
+ └── /control ← 制御端末
 ```
 
-## test
-1. バックエンドの起動
+## Unity 起動手順
+
+1. Master を起動
 ```bash
-uv run uvicorn src.backend.game_api:app --reload --port 8765
+cd ../master
+uv run python -m master.main
 ```
 
-2. Unity の起動
-Unity Editor で UnityAgent プロジェクトを開き、Play モードに入ります。
-コンソールに `Connected to Master server` と表示されれば接続成功です。
-
-3. WebSocket 経由でテスト
-
-Control WebSocket (`ws://localhost:8765/control`) に接続してコマンドを送信します:
-
+2. ハードウェアシミュレータを起動（開発時のみ）
 ```bash
-uv run python -c "
-import asyncio, json, websockets
-async def test():
-    async with websockets.connect('ws://localhost:8765/control') as ws:
-        # ゲーム開始
-        await ws.send(json.dumps({'type': 'start_game', 'payload': {'first_turn': 'human'}}))
-        print('Game started')
-
-        # 内部状態取得
-        await ws.send(json.dumps({'type': 'get_internal_state', 'payload': {}}))
-        resp = await ws.recv()
-        data = json.loads(resp)
-        print(json.dumps(data, ensure_ascii=False, indent=2))
-        assert data['type'] == 'internal_state_response'
-        print('OK!')
-asyncio.run(test())
-"
+cd ../master
+uv run uvicorn simulator.hw_simulator:app --port 8001
 ```
 
-4. 状態確認
+3. Unity Editor で `UnityAgent` プロジェクトを開き Play モードに入る
+   - `Connected to Master server` と表示されれば接続成功
+
+4. ゲームプレイ（シミュレータ経由）
 ```bash
-curl http://localhost:8765/game/status
+curl -X POST "http://localhost:8001/game/start?first_turn=human"
+curl -X POST "http://localhost:8001/game/human-move?position=4"
+curl http://localhost:8001/game/status
+curl -X POST http://localhost:8001/game/reset
 ```
 
-## 通信プロトコル (Master仕様準拠)
+## Master → Unity プロトコル
 
-すべての WebSocket メッセージは `{type, payload}` 形式で統一されています。
+| type | payload | 用途 |
+|------|---------|------|
+| `set_state` | `{"state": "thinking"}` | 状態変更（thinking/idle/human_turn/error） |
+| `play_reaction` | `{"emotion": "happy", "dialogue": "..."}` | 感情+セリフ → 表情・音声合成 |
 
-### 盤面配列
+## 感情値
+
+`normal`, `happy`, `angry`, `sad`, `surprised`, `shy`, `excited`, `smug`, `calm`
+
+## 盤面 (Master仕様)
 
 ```
 [0][1][2]
 [3][4][5]
 [6][7][8]
 ```
-
-- `0` = 空き
-- `1` = 人間のコマ(〇)
-- `2` = AIのコマ(✕)
-
-### WebSocket エンドポイント
-
-| パス | クライアント | 説明 |
-|------|-------------|------|
-| `/unity` | Unity | 演出クライアント |
-| `/control` | 制御端末 | ゲーム開始/リセット/状態取得 |
-
----
-
-### Master → Unity
-
-#### 状態変更 (`set_state`)
-
-```json
-{
-  "type": "set_state",
-  "payload": {
-    "state": "thinking"
-  }
-}
-```
-
-| state | 説明 |
-|-------|------|
-| `thinking` | AIが思考中 |
-| `idle` | 待機状態 |
-| `human_turn` | 人間のターン |
-| `error` | エラー発生 |
-
----
-
-#### 演出指示 (`play_reaction`)
-
-```json
-{
-  "type": "play_reaction",
-  "payload": {
-    "emotion": "happy",
-    "dialogue": "そこですか！"
-  }
-}
-```
-
-| フィールド | 型 | 説明 |
-|---|---|---|
-| `emotion` | `string` | 感情の種類（下表参照） |
-| `dialogue` | `string` | キャラクターのセリフ（日本語） |
-
-**感情の選択肢**:
-`normal`, `happy`, `angry`, `sad`, `surprised`, `shy`, `excited`, `smug`, `calm`
-
----
-
-### Control → Master
-
-#### ゲーム開始 (`start_game`)
-
-```json
-{"type": "start_game", "payload": {"first_turn": "human"}}
-```
-
-#### 人間の手 (`human_move`)
-
-```json
-{"type": "human_move", "payload": {"position": 4}}
-```
-
-#### 強制リセット (`force_reset`)
-
-```json
-{"type": "force_reset", "payload": {}}
-```
-
-#### 内部状態取得 (`get_internal_state`)
-
-```json
-{"type": "get_internal_state", "payload": {}}
-```
-
-レスポンス:
-```json
-{
-  "type": "internal_state_response",
-  "payload": {
-    "board": [1, 0, 2, 0, 1, 0, 0, 0, 0],
-    "current_phase": "human_turn"
-  }
-}
-```
+`0`=空き, `1`=人間(〇), `2`=AI(✕)
