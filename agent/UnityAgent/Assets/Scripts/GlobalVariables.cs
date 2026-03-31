@@ -32,7 +32,6 @@ public static class GameEvents
 {
     public static event Action<SetStatePayload> OnSetState;
     public static event Action<PlayReactionPayload> OnPlayReaction;
-
     public static void FireSetState(SetStatePayload payload) => OnSetState?.Invoke(payload);
     public static void FirePlayReaction(PlayReactionPayload payload) => OnPlayReaction?.Invoke(payload);
 }
@@ -41,8 +40,6 @@ public static class GlobalVariables
 {
     public static List<PlayReactionPayload> ReactionQueue = new List<PlayReactionPayload>();
     public static int VoiceState = 0;
-    public static int[] CurrentBoard = new int[9];
-    public static bool IsGameActive = false;
     public static string CurrentState = "idle";
 }
 
