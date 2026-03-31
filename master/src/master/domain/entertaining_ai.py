@@ -4,6 +4,7 @@ import random
 from enum import Enum
 
 from master.domain.board import AI, HUMAN, Board
+from master.domain.game_rule import check_winner
 from master.domain.minimax import score_all_moves
 from master.domain.models import Move
 
@@ -15,7 +16,7 @@ SKILL_WEIGHTS = {
     "mistake": 0.2,
     "blunder": 0.0,
 }
-ENTERTAINING_SKILL_THRESHOLD = 0.6
+ENTERTAINING_SKILL_THRESHOLD = 0.4
 MID_TIER_HALF_WIDTH = 1
 
 
@@ -66,6 +67,14 @@ def estimate_skill(move_history: list[Move], boards_history: list[Board]) -> flo
     return total / len(human_moves)
 
 
+def _creates_ai_threat(board: Board, position: int) -> bool:
+    after = board.set(position, AI)
+    return any(
+        check_winner(after.set(cell, AI)) == AI
+        for cell in after.empty_cells()
+    )
+
+
 def select_move(
     board: Board,
     move_history: list[Move],
@@ -75,22 +84,21 @@ def select_move(
     if not scored:
         return board.empty_cells()[0]
 
-    winning_moves = [m for m in scored if m.is_winning]
-    if winning_moves:
-        return winning_moves[0].position
-
     blocking_moves = [m for m in scored if m.is_blocking]
     if blocking_moves:
         return blocking_moves[0].position
 
     last_human_quality = _last_human_quality(move_history, boards_history)
     if last_human_quality in (MoveQuality.MISTAKE, MoveQuality.BLUNDER):
+        winning_moves = [m for m in scored if m.is_winning]
+        if winning_moves:
+            return winning_moves[0].position
         return scored[0].position
 
     skill = estimate_skill(move_history, boards_history)
     if skill > ENTERTAINING_SKILL_THRESHOLD:
-        safe_moves = [m for m in scored if m.score >= 0]
-        pool = safe_moves if safe_moves else scored
+        harmless = [m for m in scored if not _creates_ai_threat(board, m.position)]
+        pool = harmless if harmless else scored
         return pool[-1].position
 
     mid = len(scored) // 2
