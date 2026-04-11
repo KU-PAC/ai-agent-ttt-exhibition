@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+from master.domain.board import AI, BOARD_SIZE, HUMAN, Board
+from master.domain.models import GameResult
+
+WIN_LINES: list[tuple[int, int, int]] = [
+    (0, 1, 2),
+    (3, 4, 5),
+    (6, 7, 8),
+    (0, 3, 6),
+    (1, 4, 7),
+    (2, 5, 8),
+    (0, 4, 8),
+    (2, 4, 6),
+]
+
+
+def check_winner(board: Board) -> int | None:
+    for a, b, c in WIN_LINES:
+        if board.get(a) != 0 and board.get(a) == board.get(b) == board.get(c):
+            return board.get(a)
+    return None
+
+
+def judge(board: Board) -> GameResult:
+    winner = check_winner(board)
+    if winner == HUMAN:
+        return GameResult.WIN_HUMAN
+    if winner == AI:
+        return GameResult.WIN_AI
+    if not board.empty_cells():
+        return GameResult.DRAW
+    return GameResult.ONGOING
+
+
+def find_human_move(current: Board, new_board: Board) -> int | None:
+    diff_index: int | None = None
+    for i in range(BOARD_SIZE):
+        old, new = current.get(i), new_board.get(i)
+        if old == new:
+            continue
+        if diff_index is not None:
+            return None
+        if old != 0 or new != HUMAN:
+            return None
+        diff_index = i
+    return diff_index
+
+
+def is_valid_ai_move(board: Board, position: int) -> bool:
+    return 0 <= position < BOARD_SIZE and board.get(position) == 0

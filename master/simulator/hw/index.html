@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HW Simulator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Helvetica Neue", Arial, sans-serif; background: #1a1a2e; color: #eee; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 16px; color: #aaa; font-weight: 400; }
+  #phase { font-size: 16px; margin-bottom: 20px; padding: 6px 18px; border-radius: 20px; background: #16213e; }
+  .board { display: grid; grid-template-columns: repeat(3, 100px); grid-template-rows: repeat(3, 100px); gap: 6px; margin-bottom: 24px; }
+  .cell {
+    width: 100px; height: 100px;
+    background: #16213e; border: none; border-radius: 8px;
+    font-size: 48px; line-height: 100px; text-align: center;
+    color: #eee; cursor: pointer; padding: 0;
+    transition: background 0.15s, transform 0.15s;
+    user-select: none;
+  }
+  .cell:hover:not(.taken) { background: #0f3460; transform: scale(1.04); }
+  .cell.taken { cursor: default; }
+  .cell.human { color: #4fc3f7; }
+  .cell.ai { color: #ef5350; }
+  .controls { display: flex; gap: 10px; margin-bottom: 20px; }
+  button.ctrl {
+    padding: 10px 24px; border: none; border-radius: 6px; font-size: 14px;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .start { background: #00b894; color: #fff; }
+  .start:hover { background: #00a381; }
+  .reset { background: #636e72; color: #fff; }
+  .reset:hover { background: #535c60; }
+  .start:disabled, .reset:disabled { opacity: 0.4; cursor: default; }
+  #log {
+    width: 320px; max-height: 200px; overflow-y: auto;
+    font-size: 13px; color: #999; text-align: left;
+    background: #111; border-radius: 6px; padding: 10px;
+    line-height: 1.6;
+  }
+  #log .human-log { color: #4fc3f7; }
+  #log .ai-log { color: #e88bf0; }
+  #log .system-log { color: #666; }
+  .phase-human_turn { background: #0f3460; color: #4fc3f7; }
+  .phase-thinking { background: #4a1942; color: #e88bf0; }
+  .phase-game_over { background: #5a3e00; color: #ffc107; }
+  .phase-standby { background: #16213e; color: #888; }
+  .phase-idle { background: #16213e; color: #888; }
+</style>
+</head>
+<body>
+
+<h1>Hardware Simulator</h1>
+<div id="phase">standby</div>
+
+<div class="board" id="board"></div>
+
+<div class="controls">
+  <button class="ctrl start" id="btnStart" onclick="startGame()">Start</button>
+  <button class="ctrl reset" id="btnReset" onclick="resetGame()">Reset</button>
+</div>
+
+<div id="log"></div>
+
+<script>
+const SYMBOLS = { 0: "", 1: "\u25CB", 2: "\u2715" };
+const CLASSES = { 0: "", 1: "human", 2: "ai" };
+const POS_NAMES = ["左上","上","右上","左","中央","右","左下","下","右下"];
+let board = [0,0,0,0,0,0,0,0,0];
+let prevBoard = [0,0,0,0,0,0,0,0,0];
+let phase = "standby";
+let polling = null;
+
+function renderBoard() {
+  const el = document.getElementById("board");
+  el.innerHTML = "";
+  for (let i = 0; i < 9; i++) {
+    const cell = document.createElement("button");
+    cell.className = "cell" + (board[i] ? " taken " + CLASSES[board[i]] : "");
+    cell.textContent = SYMBOLS[board[i]];
+    cell.onclick = () => playMove(i);
+    el.appendChild(cell);
+  }
+}
+
+function setPhase(p) {
+  phase = p;
+  const el = document.getElementById("phase");
+  el.textContent = p;
+  el.className = "phase-" + p;
+}
+
+function addLog(msg, cls) {
+  const el = document.getElementById("log");
+  const line = document.createElement("div");
+  line.className = cls || "system-log";
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function detectAiMove(oldB, newB) {
+  for (let i = 0; i < 9; i++) {
+    if (oldB[i] === 0 && newB[i] === 2) return i;
+  }
+  return -1;
+}
+
+async function startGame() {
+  document.getElementById("btnStart").disabled = true;
+  document.getElementById("log").innerHTML = "";
+  try {
+    const r = await fetch("/game/start?first_turn=human", { method: "POST" });
+    const d = await r.json();
+    board = d.board;
+    prevBoard = [...board];
+    renderBoard();
+    addLog("Game started", "system-log");
+    startPolling();
+  } catch (e) { addLog("Error: " + e.message, "system-log"); }
+  document.getElementById("btnStart").disabled = false;
+}
+
+async function resetGame() {
+  stopPolling();
+  try {
+    await fetch("/game/reset", { method: "POST" });
+    board = [0,0,0,0,0,0,0,0,0];
+    prevBoard = [...board];
+    renderBoard();
+    setPhase("standby");
+    addLog("Reset", "system-log");
+  } catch (e) { addLog("Error: " + e.message, "system-log"); }
+}
+
+async function playMove(pos) {
+  if (phase !== "human_turn" || board[pos] !== 0) return;
+  try {
+    const r = await fetch("/game/human-move?position=" + pos, { method: "POST" });
+    if (!r.ok) return;
+    const d = await r.json();
+    prevBoard = [...board];
+    board = d.board;
+    renderBoard();
+    addLog("Human: " + POS_NAMES[pos] + " (" + pos + ")", "human-log");
+  } catch (e) { addLog("Error: " + e.message, "system-log"); }
+}
+
+async function pollStatus() {
+  try {
+    const r = await fetch("/game/status");
+    const d = await r.json();
+    const newPhase = d.current_phase || "unknown";
+    const newBoard = d.local_board || d.board || board;
+    const changed = JSON.stringify(newBoard) !== JSON.stringify(board);
+
+    if (changed) {
+      const aiPos = detectAiMove(board, newBoard);
+      if (aiPos >= 0) {
+        addLog("AI: " + POS_NAMES[aiPos] + " (" + aiPos + ")", "ai-log");
+      }
+      prevBoard = [...board];
+      board = newBoard;
+      renderBoard();
+    }
+
+    if (newPhase !== phase) {
+      if (newPhase === "thinking") addLog("AI thinking...", "ai-log");
+      if (newPhase === "game_over") addLog("Game over", "system-log");
+      if (newPhase === "standby" && phase !== "standby") {
+        addLog("Standby", "system-log");
+        stopPolling();
+      }
+      setPhase(newPhase);
+    }
+  } catch {}
+}
+
+function startPolling() { stopPolling(); polling = setInterval(pollStatus, 800); }
+function stopPolling() { if (polling) { clearInterval(polling); polling = null; } }
+
+renderBoard();
+setPhase("standby");
+</script>
+</body>
+</html>
