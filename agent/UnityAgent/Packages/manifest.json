@@ -1,10 +1,12 @@
 {
   "dependencies": {
+    "com.ivanmurzak.unity.mcp": "0.63.2",
     "com.unity.burst": "1.8.21",
     "com.unity.collab-proxy": "2.7.1",
     "com.unity.feature.development": "1.0.1",
     "com.unity.textmeshpro": "3.0.7",
     "com.unity.timeline": "1.7.7",
+    "com.unity.toolchain.linux-x86_64": "2.0.11",
     "com.unity.ugui": "1.0.0",
     "com.unity.visualscripting": "1.9.4",
     "com.unity.webrtc": "3.0.0-pre.8",
@@ -39,8 +41,7 @@
     "com.unity.modules.video": "1.0.0",
     "com.unity.modules.vr": "1.0.0",
     "com.unity.modules.wind": "1.0.0",
-    "com.unity.modules.xr": "1.0.0",
-    "com.ivanmurzak.unity.mcp": "0.63.2"
+    "com.unity.modules.xr": "1.0.0"
   },
   "scopedRegistries": [
     {
