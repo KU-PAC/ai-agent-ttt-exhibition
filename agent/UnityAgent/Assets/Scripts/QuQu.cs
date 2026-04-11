@@ -33,6 +33,26 @@ public class QuQu : MonoBehaviour
 
     private void Start()
     {
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            try
+            {
+                string path = System.IO.Path.Combine(Application.dataPath, "../../.env");
+                if (System.IO.File.Exists(path))
+                {
+                    foreach (string line in System.IO.File.ReadAllLines(path))
+                    {
+                        if (line.StartsWith("AIVIS_API_KEY="))
+                        {
+                            apiKey = line.Split('=')[1].Trim(' ', '"', '\'');
+                            break;
+                        }
+                    }
+                }
+            }
+            catch {}
+        }
+
         if (audioSource == null)
         {
             audioSource = gameObject.AddComponent<AudioSource>();

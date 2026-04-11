@@ -878,7 +878,7 @@ MonoBehaviour:
   faceMR: {fileID: 1925892941}
   animator: {fileID: 265661332}
   telop: {fileID: 316653983}
-  apiKey: aivis_5XQ9tWbZlDAFT2AYkYJk50gMdn2rFHC6
+  apiKey: 
   modelUuid: 3328da9a-8124-4619-a853-f7fc2f37889f
   speakerUuid: 91e8582b-daf8-4eb8-9d34-7cffae50d93f
   speakingRate: 1
