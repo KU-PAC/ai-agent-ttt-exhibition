@@ -15,6 +15,11 @@ FloatArray = npt.NDArray[np.float32]
 CELL_EMPTY: Final[int] = 0
 CELL_RED: Final[int] = 1
 CELL_BLUE: Final[int] = 2
+BOARD_SIZE: Final[int] = 3
+PAIR_VALUE_COUNT: Final[int] = 2
+CELL_CORNER_COUNT: Final[int] = 4
+MIN_VALID_WARP_SIZE: Final[int] = 2
+EXPECTED_CELL_COUNT: Final[int] = BOARD_SIZE * BOARD_SIZE
 
 
 class CellRecognitionError(RuntimeError):
@@ -57,7 +62,7 @@ CORNER_PATTERN: Final[re.Pattern[str]] = re.compile(
 
 def _parse_pair(pair_text: str) -> FloatArray:
     values = [v.strip() for v in pair_text.split(",")]
-    if len(values) != 2:
+    if len(values) != PAIR_VALUE_COUNT:
         msg = f"Invalid pair text: {pair_text!r}"
         raise CellRecognitionError(msg)
     return np.array([float(values[0]), float(values[1])], dtype=np.float32)
@@ -106,7 +111,7 @@ def parse_board_cells_from_text(text: str) -> tuple[BoardCellGeometry, ...]:
             raise CellRecognitionError(msg)
 
         corner_matches = CORNER_PATTERN.findall(corners_line)
-        if len(corner_matches) != 4:
+        if len(corner_matches) != CELL_CORNER_COUNT:
             msg = f"Expected 4 corners, got {len(corner_matches)}."
             raise CellRecognitionError(msg)
 
@@ -124,12 +129,14 @@ def parse_board_cells_from_text(text: str) -> tuple[BoardCellGeometry, ...]:
         )
         line_index += 2
 
-    if len(parsed) != 9:
+    if len(parsed) != EXPECTED_CELL_COUNT:
         msg = f"Expected 9 cells in board result text, got {len(parsed)}."
         raise CellRecognitionError(msg)
 
     ordered = tuple(sorted(parsed, key=lambda cell: (cell.row, cell.col)))
-    expected_positions = [(row, col) for row in range(3) for col in range(3)]
+    expected_positions = [
+        (row, col) for row in range(BOARD_SIZE) for col in range(BOARD_SIZE)
+    ]
     positions = [(cell.row, cell.col) for cell in ordered]
     if positions != expected_positions:
         msg = "Parsed cells are not a complete 3x3 board."
@@ -151,7 +158,7 @@ def _extract_cell_patch(
 ) -> UInt8Array:
     ordered = _order_corners(corners)
     size = int(config.cell_warp_size)
-    if size <= 2:
+    if size <= MIN_VALID_WARP_SIZE:
         msg = f"cell_warp_size must be > 2, got {size}."
         raise CellRecognitionError(msg)
 
@@ -225,11 +232,11 @@ def recognize_board_state_from_cells(
 ) -> list[list[int]]:
     """Recognize a 3x3 board state from frame and per-cell geometry."""
     cfg = config or CellRecognitionConfig()
-    if len(cells) != 9:
+    if len(cells) != EXPECTED_CELL_COUNT:
         msg = f"Expected 9 cells, got {len(cells)}."
         raise CellRecognitionError(msg)
 
-    board_state = [[CELL_EMPTY for _ in range(3)] for _ in range(3)]
+    board_state = [[CELL_EMPTY for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
     for cell in cells:
         patch = _extract_cell_patch(frame, cell.corners, cfg)
         board_state[cell.row][cell.col] = recognize_cell_state(patch, cfg)
@@ -250,3 +257,55 @@ def recognize_board_state_from_files(
 
     cells = parse_board_cells_from_file(board_result_text_path)
     return recognize_board_state_from_cells(frame, cells, config=config)
+
+
+def format_board_state_text(board_state: list[list[int]]) -> str:
+    """Format board state as a simple artifact text."""
+    lines: list[str] = ["cell_recognition_result", "", "board_state:"]
+    for row_idx, row in enumerate(board_state):
+        row_text = ", ".join(str(v) for v in row)
+        lines.append(f"  row{row_idx}: [{row_text}]")
+    return "\n".join(lines) + "\n"
+
+
+def build_board_state_visualization(
+    frame: UInt8Array,
+    cells: tuple[BoardCellGeometry, ...],
+    board_state: list[list[int]],
+) -> UInt8Array:
+    """Draw cell polygons and recognized states on the source frame."""
+    overlay: UInt8Array = frame.copy()
+    state_colors: dict[int, tuple[int, int, int]] = {
+        CELL_EMPTY: (180, 180, 180),
+        CELL_RED: (0, 0, 255),
+        CELL_BLUE: (255, 0, 0),
+    }
+    state_labels: dict[int, str] = {
+        CELL_EMPTY: "EMPTY",
+        CELL_RED: "RED",
+        CELL_BLUE: "BLUE",
+    }
+
+    for cell in cells:
+        state = int(board_state[cell.row][cell.col])
+        color = state_colors.get(state, (255, 255, 255))
+        label = state_labels.get(state, str(state))
+
+        polygon = np.round(cell.corners).astype(np.int32).reshape(-1, 1, 2)
+        cv2.polylines(overlay, [polygon], True, color, 2, cv2.LINE_AA)
+
+        center_x = int(round(float(cell.center[0])))
+        center_y = int(round(float(cell.center[1])))
+        cv2.circle(overlay, (center_x, center_y), 3, color, -1, cv2.LINE_AA)
+        cv2.putText(
+            overlay,
+            f"r{cell.row}c{cell.col}:{label}",
+            (center_x - 40, center_y - 8),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.40,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+
+    return overlay
