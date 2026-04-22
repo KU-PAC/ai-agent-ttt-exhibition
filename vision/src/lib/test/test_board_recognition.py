@@ -39,10 +39,14 @@ def _write_debug_artifacts(frame, result, debug) -> None:
     cv2.imwrite(str(output_dir / "02_binary.jpg"), debug.binary)
     cv2.imwrite(str(output_dir / "03_cleaned.jpg"), debug.cleaned)
     cv2.imwrite(str(output_dir / "04_contours_overlay.jpg"), debug.contours_overlay)
-    cv2.imwrite(str(output_dir / "05_warped.jpg"), result.warped)
+    cv2.imwrite(
+        str(output_dir / "05_vertex_directions_overlay.jpg"),
+        debug.vertex_directions_overlay,
+    )
+    cv2.imwrite(str(output_dir / "06_warped.jpg"), result.warped)
 
     detection_vis = build_detection_visualization(frame, result.corners, result.warped)
-    cv2.imwrite(str(output_dir / "06_detection_visualization.jpg"), detection_vis)
+    cv2.imwrite(str(output_dir / "07_detection_visualization.jpg"), detection_vis)
 
 
 def test_detect_and_rectify_board_with_sample_image() -> None:
