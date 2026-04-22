@@ -11,6 +11,7 @@ import numpy.typing as npt
 FloatArray = npt.NDArray[np.float32]
 UInt8Array = npt.NDArray[np.uint8]
 Int32Array = npt.NDArray[np.int32]
+Float64Array = npt.NDArray[np.float64]
 
 
 class BoardRecognitionError(RuntimeError):
@@ -40,9 +41,8 @@ DEFAULT_WARP_WIDTH: Final[int] = 300
 DEFAULT_WARP_HEIGHT: Final[int] = 300
 QUAD_VERTEX_COUNT: Final[int] = 4
 GRID_LINE_COUNT: Final[int] = 4
-DIRECTION_SWEEP_STEPS: Final[int] = 180
-MAX_OFFSET_CANDIDATE_LINES: Final[int] = 7
-MAX_OFFSET_SET_CANDIDATES: Final[int] = 10
+MAX_OFFSET_CANDIDATE_LINES: Final[int] = 10
+MAX_OFFSET_SET_CANDIDATES: Final[int] = 12
 
 
 def _order_corners(corners: FloatArray) -> FloatArray:
@@ -82,13 +82,7 @@ def _extract_largest_connected_component(mask: UInt8Array) -> UInt8Array:
     return largest_mask
 
 
-def _angle_distance(a: npt.NDArray[np.float64], b: float) -> npt.NDArray[np.float64]:
-    """Distance between orientations modulo pi."""
-    delta = np.abs(a - b)
-    return np.minimum(delta, np.pi - delta)
-
-
-def _segment_lengths(segments: Int32Array) -> npt.NDArray[np.float64]:
+def _segment_lengths(segments: Int32Array) -> Float64Array:
     delta = segments[:, 2:4].astype(np.float64) - segments[:, 0:2].astype(np.float64)
     return np.hypot(delta[:, 0], delta[:, 1])
 
@@ -100,8 +94,8 @@ def _detect_line_segments(mask: UInt8Array) -> Int32Array:
     frame_height, frame_width = mask.shape
     base: int = min(frame_width, frame_height)
 
-    threshold: int = max(30, int(base * 0.10))
-    min_line_length: int = max(25, int(base * 0.15))
+    threshold: int = max(24, int(base * 0.07))
+    min_line_length: int = max(20, int(base * 0.12))
     max_line_gap: int = max(8, int(base * 0.04))
 
     lines = cv2.HoughLinesP(
@@ -117,213 +111,294 @@ def _detect_line_segments(mask: UInt8Array) -> Int32Array:
     return lines.reshape(-1, 4).astype(np.int32)
 
 
-def _fit_primary_directions(
+def _segment_to_line(segment: npt.NDArray[np.int32]) -> Float64Array:
+    """Convert segment endpoints to normalized homogeneous line ax+by+c=0."""
+    x1, y1, x2, y2 = [float(v) for v in segment.tolist()]
+    p1 = np.array([x1, y1, 1.0], dtype=np.float64)
+    p2 = np.array([x2, y2, 1.0], dtype=np.float64)
+    line = np.cross(p1, p2)
+    norm = float(np.hypot(line[0], line[1]))
+    if norm <= 1e-9:
+        return np.array([0.0, 0.0, 0.0], dtype=np.float64)
+    return line / norm
+
+
+def _build_family_lines(segments: Int32Array) -> tuple[Float64Array, Float64Array]:
+    lines = np.array([_segment_to_line(seg) for seg in segments], dtype=np.float64)
+    valid = np.linalg.norm(lines[:, :2], axis=1) > 1e-9
+    return lines[valid], _segment_lengths(segments)[valid]
+
+
+def _cluster_segment_families(
     segments: Int32Array,
-) -> tuple[float, npt.NDArray[np.bool_], npt.NDArray[np.bool_]]:
-    """Fit two orthogonal dominant directions from detected line segments."""
-    if len(segments) < 6:
-        msg: str = "Insufficient line segments for grid direction estimation."
+) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]:
+    """Split line segments into 2 directional families without orthogonality assumption."""
+    if len(segments) < 8:
+        msg: str = "Insufficient line segments for directional clustering."
         raise BoardRecognitionError(msg)
 
-    lengths = _segment_lengths(segments)
-    angles = np.mod(
-        np.arctan2(
-            segments[:, 3].astype(np.float64) - segments[:, 1].astype(np.float64),
-            segments[:, 2].astype(np.float64) - segments[:, 0].astype(np.float64),
-        ),
-        np.pi,
+    dx = segments[:, 2].astype(np.float64) - segments[:, 0].astype(np.float64)
+    dy = segments[:, 3].astype(np.float64) - segments[:, 1].astype(np.float64)
+    lengths = np.hypot(dx, dy)
+    valid = lengths > 1e-6
+    if int(np.count_nonzero(valid)) < 8:
+        msg = "Too few valid line segments for directional clustering."
+        raise BoardRecognitionError(msg)
+
+    dx = dx[valid]
+    dy = dy[valid]
+    lengths = lengths[valid]
+
+    angles = np.mod(np.arctan2(dy, dx), np.pi)
+    features = np.column_stack([np.cos(2.0 * angles), np.sin(2.0 * angles)]).astype(
+        np.float32
     )
 
-    total_length: float = float(np.sum(lengths))
-    if total_length <= 0.0:
-        msg = "Failed to estimate grid directions due to zero-length segments."
+    criteria = (
+        cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
+        30,
+        1e-4,
+    )
+    _compactness, labels, _centers = cv2.kmeans(
+        features,
+        2,
+        None,
+        criteria,
+        8,
+        cv2.KMEANS_PP_CENTERS,
+    )
+
+    labels_flat = labels.reshape(-1)
+    support0 = float(np.sum(lengths[labels_flat == 0]))
+    support1 = float(np.sum(lengths[labels_flat == 1]))
+    total = support0 + support1
+    if total <= 0.0 or min(support0, support1) < total * 0.15:
+        msg = "Directional clustering produced a degenerate split."
         raise BoardRecognitionError(msg)
 
-    best_alpha: float | None = None
-    best_score: float = float("inf")
-    best_mask_a: npt.NDArray[np.bool_] | None = None
+    mask_a = np.zeros(len(segments), dtype=bool)
+    valid_indices = np.where(valid)[0]
+    mask_a[valid_indices[labels_flat == 0]] = True
 
-    for i in range(DIRECTION_SWEEP_STEPS + 1):
-        alpha = (np.pi / 2.0) * (i / DIRECTION_SWEEP_STEPS)
-        dist_a = _angle_distance(angles, alpha)
-        dist_b = _angle_distance(angles, alpha + (np.pi / 2.0))
-        mask_a = dist_a <= dist_b
+    mask_b = np.zeros(len(segments), dtype=bool)
+    mask_b[valid_indices[labels_flat == 1]] = True
+    return mask_a, mask_b
 
-        support_a = float(np.sum(lengths[mask_a]))
-        support_b = float(np.sum(lengths[~mask_a]))
-        if min(support_a, support_b) < total_length * 0.20:
-            continue
 
-        assignment_error = np.where(mask_a, dist_a, dist_b)
-        imbalance_penalty = abs(support_a - support_b) / total_length
-        score = float(np.sum(lengths * assignment_error)) + imbalance_penalty
-
-        if score < best_score:
-            best_score = score
-            best_alpha = alpha
-            best_mask_a = mask_a
-
-    if best_alpha is None or best_mask_a is None:
-        msg = "Failed to split line segments into two orthogonal groups."
+def _fit_vanishing_point(lines: Float64Array, weights: Float64Array) -> Float64Array:
+    """Estimate vanishing point by weighted least-squares from homogeneous lines."""
+    if len(lines) < 2:
+        msg: str = "Insufficient lines to estimate vanishing point."
         raise BoardRecognitionError(msg)
 
-    return best_alpha, best_mask_a, ~best_mask_a
+    sqrt_w = np.sqrt(np.maximum(weights, 1e-6)).reshape(-1, 1)
+    a = lines[:, :2] * sqrt_w
+    b = (-lines[:, 2:3]) * sqrt_w
+
+    solution, residuals, rank, _ = np.linalg.lstsq(a, b, rcond=None)
+    if rank < 2:
+        msg = "Vanishing point estimation is numerically unstable."
+        raise BoardRecognitionError(msg)
+
+    vp_xy = solution.reshape(-1)
+    vp = np.array([float(vp_xy[0]), float(vp_xy[1]), 1.0], dtype=np.float64)
+
+    if residuals.size > 0:
+        mse = float(residuals[0] / max(len(lines), 1))
+        if not np.isfinite(mse):
+            msg = "Vanishing point fit residual is not finite."
+            raise BoardRecognitionError(msg)
+
+    return vp
 
 
-def _segment_midpoints(segments: Int32Array) -> npt.NDArray[np.float64]:
-    endpoints = segments.astype(np.float64).reshape(-1, 2, 2)
-    return np.mean(endpoints, axis=1)
+def _line_intersection(line_a: Float64Array, line_b: Float64Array) -> Float64Array:
+    point = np.cross(line_a, line_b)
+    if abs(float(point[2])) < 1e-8:
+        msg = "Line intersection is at infinity and cannot be used for grid vertices."
+        raise BoardRecognitionError(msg)
+    return np.array([point[0] / point[2], point[1] / point[2]], dtype=np.float64)
 
 
-def _merge_rho_candidates(
-    rhos: npt.NDArray[np.float64],
-    weights: npt.NDArray[np.float64],
+def _line_through_points(p1: Float64Array, p2: Float64Array) -> Float64Array:
+    line = np.cross(
+        np.array([p1[0], p1[1], 1.0], dtype=np.float64),
+        np.array([p2[0], p2[1], 1.0], dtype=np.float64),
+    )
+    norm = float(np.hypot(line[0], line[1]))
+    if norm <= 1e-9:
+        msg: str = "Failed to build reference line for line-family ordering."
+        raise BoardRecognitionError(msg)
+    return line / norm
+
+
+def _project_line_parameter(
+    line: Float64Array,
+    reference_line: Float64Array,
+    ref_origin: Float64Array,
+    ref_dir: Float64Array,
+) -> float | None:
+    try:
+        point = _line_intersection(line, reference_line)
+    except BoardRecognitionError:
+        return None
+    return float(np.dot(point - ref_origin, ref_dir))
+
+
+def _merge_parameterized_lines(
+    params: Float64Array,
+    lines: Float64Array,
+    weights: Float64Array,
     tolerance: float,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """Merge nearby line offsets to remove duplicate Hough detections."""
-    if len(rhos) == 0:
-        return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
+) -> tuple[Float64Array, Float64Array, Float64Array]:
+    """Merge close family-line candidates in 1D parameter space."""
+    if len(params) == 0:
+        return (
+            np.empty(0, dtype=np.float64),
+            np.empty((0, 3), dtype=np.float64),
+            np.empty(0, dtype=np.float64),
+        )
 
-    order = np.argsort(rhos)
-    sorted_rhos = rhos[order]
-    sorted_weights = weights[order]
+    order = np.argsort(params)
+    p_sorted = params[order]
+    l_sorted = lines[order]
+    w_sorted = weights[order]
 
-    merged_rhos: list[float] = []
+    merged_params: list[float] = []
+    merged_lines: list[Float64Array] = []
     merged_weights: list[float] = []
 
-    current_values: list[float] = [float(sorted_rhos[0])]
-    current_weights: list[float] = [float(sorted_weights[0])]
-
-    for rho, weight in zip(sorted_rhos[1:], sorted_weights[1:], strict=False):
-        if abs(float(rho) - current_values[-1]) <= tolerance:
-            current_values.append(float(rho))
-            current_weights.append(float(weight))
+    block_idx: list[int] = [0]
+    for idx in range(1, len(p_sorted)):
+        if abs(float(p_sorted[idx] - p_sorted[block_idx[-1]])) <= tolerance:
+            block_idx.append(idx)
             continue
 
-        block_weights = np.array(current_weights, dtype=np.float64)
-        block_values = np.array(current_values, dtype=np.float64)
-        merged_rhos.append(float(np.average(block_values, weights=block_weights)))
-        merged_weights.append(float(np.sum(block_weights)))
+        block_w = w_sorted[block_idx]
+        block_p = p_sorted[block_idx]
+        representative = block_idx[int(np.argmax(block_w))]
 
-        current_values = [float(rho)]
-        current_weights = [float(weight)]
+        merged_params.append(float(np.average(block_p, weights=block_w)))
+        merged_lines.append(l_sorted[representative].copy())
+        merged_weights.append(float(np.sum(block_w)))
 
-    block_weights = np.array(current_weights, dtype=np.float64)
-    block_values = np.array(current_values, dtype=np.float64)
-    merged_rhos.append(float(np.average(block_values, weights=block_weights)))
-    merged_weights.append(float(np.sum(block_weights)))
+        block_idx = [idx]
 
-    return np.array(merged_rhos, dtype=np.float64), np.array(
-        merged_weights, dtype=np.float64
+    block_w = w_sorted[block_idx]
+    block_p = p_sorted[block_idx]
+    representative = block_idx[int(np.argmax(block_w))]
+    merged_params.append(float(np.average(block_p, weights=block_w)))
+    merged_lines.append(l_sorted[representative].copy())
+    merged_weights.append(float(np.sum(block_w)))
+
+    return (
+        np.array(merged_params, dtype=np.float64),
+        np.array(merged_lines, dtype=np.float64),
+        np.array(merged_weights, dtype=np.float64),
     )
 
 
-def _enumerate_regular_offset_sets(
-    candidates: npt.NDArray[np.float64],
-    weights: npt.NDArray[np.float64],
-) -> list[npt.NDArray[np.float64]]:
-    """Enumerate top regular 4-offset sets from line candidates."""
-    if len(candidates) < GRID_LINE_COUNT:
-        msg = "Failed to find enough grid lines in one direction."
+def _enumerate_four_line_sets(
+    params: Float64Array,
+    lines: Float64Array,
+    weights: Float64Array,
+) -> list[Float64Array]:
+    """Enumerate top line quadruples with regular spacing in parameter space."""
+    if len(params) < GRID_LINE_COUNT:
+        msg = "Failed to find enough ordered grid-line candidates."
         raise BoardRecognitionError(msg)
 
-    if len(candidates) > MAX_OFFSET_CANDIDATE_LINES:
-        top_indices = np.argsort(weights)[-MAX_OFFSET_CANDIDATE_LINES:]
-        candidates = candidates[top_indices]
-        weights = weights[top_indices]
+    if len(params) > MAX_OFFSET_CANDIDATE_LINES:
+        top = np.argsort(weights)[-MAX_OFFSET_CANDIDATE_LINES:]
+        params = params[top]
+        lines = lines[top]
+        weights = weights[top]
 
-    order = np.argsort(candidates)
-    candidates = candidates[order]
+    order = np.argsort(params)
+    params = params[order]
+    lines = lines[order]
     weights = weights[order]
 
-    scored_sets: list[tuple[float, npt.NDArray[np.float64]]] = []
-
-    for idx_tuple in combinations(range(len(candidates)), GRID_LINE_COUNT):
+    scored: list[tuple[float, Float64Array]] = []
+    for idx_tuple in combinations(range(len(params)), GRID_LINE_COUNT):
         idx = np.array(idx_tuple, dtype=np.int32)
-        offsets = candidates[idx]
-        local_weights = weights[idx]
+        p = params[idx]
+        local_w = weights[idx]
 
-        spacing = np.diff(offsets)
+        spacing = np.diff(p)
         mean_spacing = float(np.mean(spacing))
         if mean_spacing <= 1.0:
             continue
 
-        spacing_std = float(np.std(spacing))
-        regularity = spacing_std / (mean_spacing + 1e-6)
-        span = float(offsets[-1] - offsets[0])
-        score = float(np.sum(local_weights)) + (0.15 * span) - (8.0 * regularity)
-        scored_sets.append((score, offsets.astype(np.float64)))
+        regularity = float(np.std(spacing)) / (mean_spacing + 1e-6)
+        span = float(p[-1] - p[0])
+        score = float(np.sum(local_w)) + (0.1 * span) - (6.0 * regularity)
+        scored.append((score, lines[idx]))
 
-    if not scored_sets:
-        msg = "Failed to select a stable 4-line grid family."
+    if not scored:
+        msg = "Failed to form 4-line grid candidates from line family."
         raise BoardRecognitionError(msg)
 
-    scored_sets.sort(key=lambda item: item[0], reverse=True)
-    return [offsets for _, offsets in scored_sets[:MAX_OFFSET_SET_CANDIDATES]]
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [line_set for _, line_set in scored[:MAX_OFFSET_SET_CANDIDATES]]
 
 
-def _fit_grid_family_offsets(
-    segments: Int32Array,
-    direction: float,
+def _build_line_family_candidates(
+    family_lines: Float64Array,
+    family_weights: Float64Array,
+    opposite_vp: Float64Array,
+    frame_center: Float64Array,
     tolerance: float,
-) -> list[npt.NDArray[np.float64]]:
-    """Estimate top 4-line offset sets for one grid direction."""
-    if len(segments) < GRID_LINE_COUNT:
+) -> list[Float64Array]:
+    """Create ordered 4-line candidates for one vanishing-point family."""
+    if len(family_lines) < GRID_LINE_COUNT:
         msg = "Insufficient line support for one grid direction."
         raise BoardRecognitionError(msg)
 
-    normal = np.array([-np.sin(direction), np.cos(direction)], dtype=np.float64)
-    midpoints = _segment_midpoints(segments)
-    rhos = midpoints @ normal
-    weights = _segment_lengths(segments)
+    vp_xy = opposite_vp[:2]
+    center_to_vp = vp_xy - frame_center
+    if float(np.hypot(center_to_vp[0], center_to_vp[1])) < 1e-6:
+        center_to_vp = np.array([1.0, 0.0], dtype=np.float64)
 
-    merged_rhos, merged_weights = _merge_rho_candidates(
-        rhos, weights, tolerance=tolerance
-    )
-    return _enumerate_regular_offset_sets(merged_rhos, merged_weights)
+    reference_line = _line_through_points(frame_center, frame_center + center_to_vp)
+    ref_dir = np.array([-reference_line[1], reference_line[0]], dtype=np.float64)
+    ref_norm = float(np.hypot(ref_dir[0], ref_dir[1]))
+    ref_dir = ref_dir / max(ref_norm, 1e-9)
 
+    params: list[float] = []
+    selected_lines: list[Float64Array] = []
+    selected_weights: list[float] = []
 
-def _intersect_lines(
-    normal_a: npt.NDArray[np.float64],
-    rho_a: float,
-    normal_b: npt.NDArray[np.float64],
-    rho_b: float,
-) -> npt.NDArray[np.float64]:
-    matrix = np.array(
-        [
-            [normal_a[0], normal_a[1]],
-            [normal_b[0], normal_b[1]],
-        ],
-        dtype=np.float64,
-    )
-    determinant = float(np.linalg.det(matrix))
-    if abs(determinant) < 1e-6:
-        msg = "Grid lines are near-parallel and intersections are unstable."
+    for line, weight in zip(family_lines, family_weights, strict=False):
+        parameter = _project_line_parameter(line, reference_line, frame_center, ref_dir)
+        if parameter is None:
+            continue
+        params.append(parameter)
+        selected_lines.append(line)
+        selected_weights.append(float(weight))
+
+    if len(params) < GRID_LINE_COUNT:
+        msg = "Failed to parameterize enough lines in one family."
         raise BoardRecognitionError(msg)
 
-    rhs = np.array([rho_a, rho_b], dtype=np.float64)
-    return np.linalg.solve(matrix, rhs)
+    merged_params, merged_lines, merged_weights = _merge_parameterized_lines(
+        np.array(params, dtype=np.float64),
+        np.array(selected_lines, dtype=np.float64),
+        np.array(selected_weights, dtype=np.float64),
+        tolerance=tolerance,
+    )
+    return _enumerate_four_line_sets(merged_params, merged_lines, merged_weights)
 
 
-def _build_grid_points(
-    offsets_a: npt.NDArray[np.float64],
-    direction_a: float,
-    offsets_b: npt.NDArray[np.float64],
-    direction_b: float,
-) -> npt.NDArray[np.float64]:
-    normal_a = np.array([-np.sin(direction_a), np.cos(direction_a)], dtype=np.float64)
-    normal_b = np.array([-np.sin(direction_b), np.cos(direction_b)], dtype=np.float64)
-
+def _build_grid_points(lines_a: Float64Array, lines_b: Float64Array) -> Float64Array:
     points = np.zeros((GRID_LINE_COUNT, GRID_LINE_COUNT, 2), dtype=np.float64)
-    for i, rho_a in enumerate(offsets_a):
-        for j, rho_b in enumerate(offsets_b):
-            points[i, j] = _intersect_lines(
-                normal_a, float(rho_a), normal_b, float(rho_b)
-            )
+    for i in range(GRID_LINE_COUNT):
+        for j in range(GRID_LINE_COUNT):
+            points[i, j] = _line_intersection(lines_a[i], lines_b[j])
     return points
 
 
-def _grid_outer_corners(grid_points: npt.NDArray[np.float64]) -> FloatArray:
+def _grid_outer_corners(grid_points: Float64Array) -> FloatArray:
     raw_corners = np.array(
         [
             grid_points[0, 0],
@@ -339,7 +414,7 @@ def _grid_outer_corners(grid_points: npt.NDArray[np.float64]) -> FloatArray:
 def _build_grid_overlay(
     frame: UInt8Array,
     segments: Int32Array,
-    grid_points: npt.NDArray[np.float64],
+    grid_points: Float64Array,
 ) -> UInt8Array:
     overlay: UInt8Array = frame.copy()
 
@@ -378,8 +453,8 @@ def _expected_vertex_direction_count(row: int, col: int) -> int:
 
 def _ray_has_line_support(
     mask: UInt8Array,
-    origin: npt.NDArray[np.float64],
-    direction: npt.NDArray[np.float64],
+    origin: Float64Array,
+    direction: Float64Array,
     max_distance: float,
     step: float,
 ) -> bool:
@@ -421,9 +496,7 @@ def _ray_has_line_support(
     return (max_run_length >= 2) or (hit_count >= max(3, sample_count // 3))
 
 
-def _grid_spacing_metrics(
-    grid_points: npt.NDArray[np.float64],
-) -> tuple[float, float, float]:
+def _grid_spacing_metrics(grid_points: Float64Array) -> tuple[float, float, float]:
     """Compute grid spacing stats for probing line support and regularity."""
     diff_row = grid_points[1:, :, :] - grid_points[:-1, :, :]
     diff_col = grid_points[:, 1:, :] - grid_points[:, :-1, :]
@@ -441,19 +514,26 @@ def _grid_spacing_metrics(
     return mean_row, mean_col, regularity
 
 
+def _normalized_direction(
+    from_point: Float64Array, to_point: Float64Array
+) -> Float64Array:
+    vec = to_point - from_point
+    norm = float(np.hypot(vec[0], vec[1]))
+    if norm <= 1e-6:
+        return np.array([1.0, 0.0], dtype=np.float64)
+    return vec / norm
+
+
 def _compute_vertex_direction_support(
     mask: UInt8Array,
-    grid_points: npt.NDArray[np.float64],
-    direction_a: float,
-    direction_b: float,
-) -> tuple[npt.NDArray[np.int32], npt.NDArray[np.bool_]]:
-    """Count how many line directions reach each grid vertex."""
+    grid_points: Float64Array,
+    vp_a: Float64Array,
+    vp_b: Float64Array,
+) -> tuple[Int32Array, npt.NDArray[np.bool_]]:
+    """Count how many line directions reach each grid vertex using local VP rays."""
     mean_row, mean_col, _ = _grid_spacing_metrics(grid_points)
     probe_distance: float = 0.45 * min(mean_row, mean_col)
     probe_step: float = max(1.0, 0.08 * probe_distance)
-
-    vec_a = np.array([np.cos(direction_a), np.sin(direction_a)], dtype=np.float64)
-    vec_b = np.array([np.cos(direction_b), np.sin(direction_b)], dtype=np.float64)
 
     support_flags = np.zeros((GRID_LINE_COUNT, GRID_LINE_COUNT, 4), dtype=bool)
     counts = np.zeros((GRID_LINE_COUNT, GRID_LINE_COUNT), dtype=np.int32)
@@ -461,7 +541,9 @@ def _compute_vertex_direction_support(
     for row in range(GRID_LINE_COUNT):
         for col in range(GRID_LINE_COUNT):
             origin = grid_points[row, col]
-            ray_dirs = (vec_a, -vec_a, vec_b, -vec_b)
+            dir_a = _normalized_direction(origin, vp_a[:2])
+            dir_b = _normalized_direction(origin, vp_b[:2])
+            ray_dirs = (dir_a, -dir_a, dir_b, -dir_b)
             for idx, ray_dir in enumerate(ray_dirs):
                 support_flags[row, col, idx] = _ray_has_line_support(
                     mask,
@@ -478,11 +560,11 @@ def _compute_vertex_direction_support(
 def _score_grid_candidate(
     mask: UInt8Array,
     frame_area: float,
-    grid_points: npt.NDArray[np.float64],
-    direction_a: float,
-    direction_b: float,
-) -> tuple[float, FloatArray, npt.NDArray[np.int32], npt.NDArray[np.bool_]]:
-    """Score a grid candidate using area, regularity, and vertex direction counts."""
+    grid_points: Float64Array,
+    vp_a: Float64Array,
+    vp_b: Float64Array,
+) -> tuple[float, FloatArray, Int32Array, npt.NDArray[np.bool_]]:
+    """Score candidate grid by geometry and per-vertex direction support."""
     corners = _grid_outer_corners(grid_points)
     area = float(cv2.contourArea(corners.astype(np.float32)))
     if area < frame_area * 0.05 or area > frame_area * 0.98:
@@ -494,9 +576,7 @@ def _score_grid_candidate(
         )
 
     _, _, regularity = _grid_spacing_metrics(grid_points)
-    counts, flags = _compute_vertex_direction_support(
-        mask, grid_points, direction_a, direction_b
-    )
+    counts, flags = _compute_vertex_direction_support(mask, grid_points, vp_a, vp_b)
 
     direction_error: float = 0.0
     support_total: int = 0
@@ -512,23 +592,57 @@ def _score_grid_candidate(
         (4.0 * support_total)
         - (15.0 * direction_error)
         - (140.0 * regularity)
-        - (10.0 * abs(area_ratio - 0.35))
+        - (8.0 * abs(area_ratio - 0.35))
     )
     return score, corners, counts, flags
 
 
+def _draw_vanishing_point(
+    overlay: UInt8Array,
+    vp: Float64Array,
+    color: tuple[int, int, int],
+) -> None:
+    x = int(round(float(vp[0])))
+    y = int(round(float(vp[1])))
+    height, width = overlay.shape[:2]
+
+    inside = 0 <= x < width and 0 <= y < height
+    if inside:
+        cv2.circle(overlay, (x, y), 8, color, 2, cv2.LINE_AA)
+        return
+
+    cx = width * 0.5
+    cy = height * 0.5
+    dx = float(vp[0] - cx)
+    dy = float(vp[1] - cy)
+    norm = float(np.hypot(dx, dy))
+    if norm <= 1e-6:
+        return
+
+    scale = min(width, height) * 0.45 / norm
+    ex = int(round(cx + dx * scale))
+    ey = int(round(cy + dy * scale))
+    cv2.circle(overlay, (ex, ey), 6, color, 2, cv2.LINE_AA)
+    cv2.line(
+        overlay,
+        (int(round(cx)), int(round(cy))),
+        (ex, ey),
+        color,
+        1,
+        cv2.LINE_AA,
+    )
+
+
 def _build_vertex_direction_overlay(
     frame: UInt8Array,
-    grid_points: npt.NDArray[np.float64],
-    counts: npt.NDArray[np.int32],
+    grid_points: Float64Array,
+    counts: Int32Array,
     support_flags: npt.NDArray[np.bool_],
-    direction_a: float,
-    direction_b: float,
+    vp_a: Float64Array,
+    vp_b: Float64Array,
 ) -> UInt8Array:
     """Visualize per-vertex incoming line directions and counted degree."""
     overlay: UInt8Array = frame.copy()
-    vec_a = np.array([np.cos(direction_a), np.sin(direction_a)], dtype=np.float64)
-    vec_b = np.array([np.cos(direction_b), np.sin(direction_b)], dtype=np.float64)
 
     mean_row, mean_col, _ = _grid_spacing_metrics(grid_points)
     ray_len: float = max(6.0, 0.22 * min(mean_row, mean_col))
@@ -547,7 +661,9 @@ def _build_vertex_direction_overlay(
             px = int(round(float(point[0])))
             py = int(round(float(point[1])))
 
-            directions = (vec_a, -vec_a, vec_b, -vec_b)
+            dir_a = _normalized_direction(point, vp_a[:2])
+            dir_b = _normalized_direction(point, vp_b[:2])
+            directions = (dir_a, -dir_a, dir_b, -dir_b)
             for idx, ray in enumerate(directions):
                 ex = int(round(float(point[0] + ray[0] * ray_len)))
                 ey = int(round(float(point[1] + ray[1] * ray_len)))
@@ -573,6 +689,8 @@ def _build_vertex_direction_overlay(
                 cv2.LINE_AA,
             )
 
+    _draw_vanishing_point(overlay, vp_a, (255, 120, 0))
+    _draw_vanishing_point(overlay, vp_b, (255, 120, 0))
     return overlay
 
 
@@ -585,7 +703,7 @@ def detect_board_corners(frame: UInt8Array) -> FloatArray:
 def detect_board_corners_with_debug(
     frame: UInt8Array,
 ) -> tuple[FloatArray, BoardDetectionDebug]:
-    """Detect board corners via direct 3x3 grid reconstruction."""
+    """Detect board corners via VP-aware 3x3 grid reconstruction."""
     gray: UInt8Array = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     blurred: UInt8Array = cv2.GaussianBlur(gray, (5, 5), 0)
 
@@ -610,44 +728,62 @@ def detect_board_corners_with_debug(
         msg: str = "Failed to detect enough board line segments."
         raise BoardRecognitionError(msg)
 
-    direction_a, mask_a, mask_b = _fit_primary_directions(segments)
-    direction_b: float = float((direction_a + (np.pi / 2.0)) % np.pi)
+    mask_a, mask_b = _cluster_segment_families(segments)
+
+    lines_a, weights_a = _build_family_lines(segments[mask_a])
+    lines_b, weights_b = _build_family_lines(segments[mask_b])
+
+    if len(lines_a) < GRID_LINE_COUNT or len(lines_b) < GRID_LINE_COUNT:
+        msg = "Insufficient reliable lines after directional clustering."
+        raise BoardRecognitionError(msg)
+
+    vp_a = _fit_vanishing_point(lines_a, weights_a)
+    vp_b = _fit_vanishing_point(lines_b, weights_b)
 
     frame_height: int
     frame_width: int
     frame_height, frame_width = frame.shape[:2]
-    diagonal: float = float(np.hypot(frame_width, frame_height))
-    rho_tolerance: float = max(4.0, 0.015 * diagonal)
-
     frame_area = float(frame_width * frame_height)
-    offset_sets_a = _fit_grid_family_offsets(
-        segments[mask_a], direction_a, rho_tolerance
+    frame_center = np.array([frame_width * 0.5, frame_height * 0.5], dtype=np.float64)
+
+    diagonal: float = float(np.hypot(frame_width, frame_height))
+    family_tolerance: float = max(4.0, 0.02 * diagonal)
+
+    line_sets_a = _build_line_family_candidates(
+        lines_a,
+        weights_a,
+        opposite_vp=vp_b,
+        frame_center=frame_center,
+        tolerance=family_tolerance,
     )
-    offset_sets_b = _fit_grid_family_offsets(
-        segments[mask_b], direction_b, rho_tolerance
+    line_sets_b = _build_line_family_candidates(
+        lines_b,
+        weights_b,
+        opposite_vp=vp_a,
+        frame_center=frame_center,
+        tolerance=family_tolerance,
     )
 
     best_score: float = -float("inf")
-    best_grid_points: npt.NDArray[np.float64] | None = None
+    best_grid_points: Float64Array | None = None
     best_corners: FloatArray | None = None
-    best_counts: npt.NDArray[np.int32] | None = None
+    best_counts: Int32Array | None = None
     best_flags: npt.NDArray[np.bool_] | None = None
 
-    for offsets_a in offset_sets_a:
-        for offsets_b in offset_sets_b:
-            candidate_grid = _build_grid_points(
-                offsets_a,
-                direction_a,
-                offsets_b,
-                direction_b,
-            )
+    for lines4_a in line_sets_a:
+        for lines4_b in line_sets_b:
+            try:
+                candidate_grid = _build_grid_points(lines4_a, lines4_b)
+            except BoardRecognitionError:
+                continue
+
             score, candidate_corners, candidate_counts, candidate_flags = (
                 _score_grid_candidate(
                     cleaned,
                     frame_area,
                     candidate_grid,
-                    direction_a,
-                    direction_b,
+                    vp_a,
+                    vp_b,
                 )
             )
             if score > best_score:
@@ -667,15 +803,14 @@ def detect_board_corners_with_debug(
         msg = "Failed to select a reliable 3x3 grid candidate."
         raise BoardRecognitionError(msg)
 
-    corners = best_corners
     overlay: UInt8Array = _build_grid_overlay(frame, segments, best_grid_points)
     directions_overlay: UInt8Array = _build_vertex_direction_overlay(
         frame,
         best_grid_points,
         best_counts,
         best_flags,
-        direction_a,
-        direction_b,
+        vp_a,
+        vp_b,
     )
     debug = BoardDetectionDebug(
         gray=gray,
@@ -684,7 +819,7 @@ def detect_board_corners_with_debug(
         contours_overlay=overlay,
         vertex_directions_overlay=directions_overlay,
     )
-    return corners, debug
+    return best_corners, debug
 
 
 def rectify_board_image(
