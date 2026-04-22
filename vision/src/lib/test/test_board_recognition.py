@@ -13,7 +13,7 @@ if str(PROJECT_SRC) not in sys.path:
 
 from lib.board_recognition import (
     build_detection_visualization,
-    detect_and_rectify_board,
+    detect_and_rectify_board_with_debug,
 )
 
 
@@ -27,13 +27,31 @@ def _output_image_path() -> Path:
     )
 
 
+def _debug_output_dir() -> Path:
+    return CURRENT_FILE.parents[3] / "output" / "camera_frame_roi_debug"
+
+
+def _write_debug_artifacts(frame, result, debug) -> None:
+    output_dir: Path = _debug_output_dir()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    cv2.imwrite(str(output_dir / "01_gray.jpg"), debug.gray)
+    cv2.imwrite(str(output_dir / "02_binary.jpg"), debug.binary)
+    cv2.imwrite(str(output_dir / "03_cleaned.jpg"), debug.cleaned)
+    cv2.imwrite(str(output_dir / "04_contours_overlay.jpg"), debug.contours_overlay)
+    cv2.imwrite(str(output_dir / "05_warped.jpg"), result.warped)
+
+    detection_vis = build_detection_visualization(frame, result.corners, result.warped)
+    cv2.imwrite(str(output_dir / "06_detection_visualization.jpg"), detection_vis)
+
+
 def test_detect_and_rectify_board_with_sample_image() -> None:
     image_path: Path = _sample_image_path()
     frame = cv2.imread(str(image_path))
 
     assert frame is not None
 
-    result = detect_and_rectify_board(frame)
+    result, debug = detect_and_rectify_board_with_debug(frame)
 
     assert result.warped.shape[0] == 300
     assert result.warped.shape[1] == 300
@@ -41,6 +59,8 @@ def test_detect_and_rectify_board_with_sample_image() -> None:
 
     contour_area = float(cv2.contourArea(result.corners.astype(np.float32)))
     assert contour_area > 10_000.0
+
+    _write_debug_artifacts(frame, result, debug)
 
     visualization = build_detection_visualization(frame, result.corners, result.warped)
 
@@ -58,7 +78,8 @@ if __name__ == "__main__":
     if frame is None:
         raise SystemExit("[ERROR] failed to load sample image")
 
-    result = detect_and_rectify_board(frame)
+    result, debug = detect_and_rectify_board_with_debug(frame)
+    _write_debug_artifacts(frame, result, debug)
     visualization = build_detection_visualization(frame, result.corners, result.warped)
 
     output_path = _output_image_path()

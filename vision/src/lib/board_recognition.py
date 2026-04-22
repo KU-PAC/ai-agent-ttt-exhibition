@@ -23,6 +23,16 @@ class BoardDetectionResult:
     warped: UInt8Array
 
 
+@dataclass(frozen=True, slots=True)
+class BoardDetectionDebug:
+    """Intermediate images from the board detection pipeline."""
+
+    gray: UInt8Array
+    binary: UInt8Array
+    cleaned: UInt8Array
+    contours_overlay: UInt8Array
+
+
 DEFAULT_WARP_WIDTH: Final[int] = 300
 DEFAULT_WARP_HEIGHT: Final[int] = 300
 QUAD_VERTEX_COUNT: Final[int] = 4
@@ -113,8 +123,36 @@ def _largest_quadrilateral(
     return _order_corners(corners)
 
 
+def _build_contours_overlay(
+    frame: UInt8Array,
+    contours: tuple[npt.NDArray[np.int32], ...] | list[npt.NDArray[np.int32]],
+    corners: FloatArray | None,
+) -> UInt8Array:
+    """Build an image showing extracted contours and selected corners."""
+    overlay: UInt8Array = frame.copy()
+    cv2.drawContours(overlay, contours, -1, (0, 165, 255), 1)
+
+    if corners is not None:
+        poly: npt.NDArray[np.int32] = corners.astype(np.int32).reshape(
+            QUAD_VERTEX_COUNT,
+            1,
+            2,
+        )
+        cv2.polylines(overlay, [poly], True, (0, 255, 0), 3)
+
+    return overlay
+
+
 def detect_board_corners(frame: UInt8Array) -> FloatArray:
     """Detect board corners as a 4-point polygon from an input frame."""
+    corners, _ = detect_board_corners_with_debug(frame)
+    return corners
+
+
+def detect_board_corners_with_debug(
+    frame: UInt8Array,
+) -> tuple[FloatArray, BoardDetectionDebug]:
+    """Detect board corners and return lightweight intermediate state images."""
     gray: UInt8Array = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     blurred: UInt8Array = cv2.GaussianBlur(gray, (5, 5), 0)
 
@@ -143,8 +181,15 @@ def detect_board_corners(frame: UInt8Array) -> FloatArray:
         frame_width,
         frame_height,
     )
+    contours_overlay: UInt8Array = _build_contours_overlay(frame, contours, corners)
     if corners is not None:
-        return corners
+        debug: BoardDetectionDebug = BoardDetectionDebug(
+            gray=gray,
+            binary=binary,
+            cleaned=cleaned,
+            contours_overlay=contours_overlay,
+        )
+        return corners, debug
 
     # Fallback: fit a rectangle to the largest contour in difficult frames.
     if not contours:
@@ -161,7 +206,19 @@ def detect_board_corners(frame: UInt8Array) -> FloatArray:
 
     rect = cv2.minAreaRect(largest_contour)
     box: FloatArray = cv2.boxPoints(rect).astype(np.float32)
-    return _order_corners(box)
+    fallback_corners: FloatArray = _order_corners(box)
+    fallback_overlay: UInt8Array = _build_contours_overlay(
+        frame,
+        contours,
+        fallback_corners,
+    )
+    debug = BoardDetectionDebug(
+        gray=gray,
+        binary=binary,
+        cleaned=cleaned,
+        contours_overlay=fallback_overlay,
+    )
+    return fallback_corners, debug
 
 
 def rectify_board_image(
@@ -196,6 +253,17 @@ def detect_and_rectify_board(
     corners: FloatArray = detect_board_corners(frame)
     warped: UInt8Array = rectify_board_image(frame, corners, width=width, height=height)
     return BoardDetectionResult(corners=corners, warped=warped)
+
+
+def detect_and_rectify_board_with_debug(
+    frame: UInt8Array,
+    width: int = DEFAULT_WARP_WIDTH,
+    height: int = DEFAULT_WARP_HEIGHT,
+) -> tuple[BoardDetectionResult, BoardDetectionDebug]:
+    """Detect board and return both corrected image and pipeline debug images."""
+    corners, debug = detect_board_corners_with_debug(frame)
+    warped: UInt8Array = rectify_board_image(frame, corners, width=width, height=height)
+    return BoardDetectionResult(corners=corners, warped=warped), debug
 
 
 def build_detection_visualization(
