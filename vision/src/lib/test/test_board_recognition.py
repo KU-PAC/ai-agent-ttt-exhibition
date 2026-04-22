@@ -31,6 +31,34 @@ def _debug_output_dir() -> Path:
     return CURRENT_FILE.parents[3] / "output" / "camera_frame_roi_debug"
 
 
+def _format_board_result_text(result) -> str:
+    lines: list[str] = []
+    lines.append("board_recognition_result")
+    lines.append("")
+
+    lines.append("corners:")
+    for idx, corner in enumerate(result.corners):
+        x = float(corner[0])
+        y = float(corner[1])
+        lines.append(f"  {idx}: x={x:.3f}, y={y:.3f}")
+
+    lines.append("")
+    lines.append(f"cells_count: {len(result.cells)}")
+    lines.append("cells:")
+    for cell in result.cells:
+        center_x = float(cell.center[0])
+        center_y = float(cell.center[1])
+        corner_text = ", ".join(
+            f"({float(pt[0]):.3f},{float(pt[1]):.3f})" for pt in cell.corners
+        )
+        lines.append(
+            f"  r{cell.row}c{cell.col}: center=({center_x:.3f},{center_y:.3f})"
+        )
+        lines.append(f"    corners={corner_text}")
+
+    return "\n".join(lines) + "\n"
+
+
 def _write_debug_artifacts(frame, result, debug) -> None:
     output_dir: Path = _debug_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -47,6 +75,12 @@ def _write_debug_artifacts(frame, result, debug) -> None:
 
     detection_vis = build_detection_visualization(frame, result.corners, result.warped)
     cv2.imwrite(str(output_dir / "07_detection_visualization.jpg"), detection_vis)
+
+    result_text = _format_board_result_text(result)
+    (output_dir / "08_board_recognition_result.txt").write_text(
+        result_text,
+        encoding="utf-8",
+    )
 
 
 def test_detect_and_rectify_board_with_sample_image() -> None:
@@ -72,6 +106,9 @@ def test_detect_and_rectify_board_with_sample_image() -> None:
     assert contour_area > 10_000.0
 
     _write_debug_artifacts(frame, result, debug)
+    result_text_path = _debug_output_dir() / "08_board_recognition_result.txt"
+    assert result_text_path.exists()
+    assert result_text_path.stat().st_size > 0
 
     visualization = build_detection_visualization(frame, result.corners, result.warped)
 
