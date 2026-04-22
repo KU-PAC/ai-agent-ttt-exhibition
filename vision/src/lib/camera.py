@@ -21,6 +21,7 @@ class CameraDevice:
 
 
 _V4L_BY_ID: Final[Path] = Path("/dev/v4l/by-id")
+_SYS_VIDEO4LINUX: Final[Path] = Path("/sys/class/video4linux")
 
 
 def _extract_video_index(device_path: Path) -> int | None:
@@ -32,6 +33,29 @@ def _extract_video_index(device_path: Path) -> int | None:
     if not suffix.isdigit():
         return None
     return int(suffix)
+
+
+def _is_removable_video_node(device_path: Path) -> bool:
+    """Return True only when the node belongs to a removable camera device."""
+    video_dir: Path = _SYS_VIDEO4LINUX / device_path.name
+    candidate_paths: tuple[Path, ...] = (
+        video_dir / "device" / "../removable",
+        video_dir / "device" / "removable",
+    )
+
+    for candidate in candidate_paths:
+        try:
+            value: str = (
+                candidate.resolve(strict=True).read_text(encoding="utf-8").strip()
+            )
+        except OSError:
+            continue
+
+        # Linux reports "removable" for external devices and "fixed" for built-ins.
+        if value.lower() == "removable":
+            return True
+
+    return False
 
 
 def detect_usb_webcams() -> list[CameraDevice]:
@@ -53,11 +77,27 @@ def detect_usb_webcams() -> list[CameraDevice]:
         if index is None:
             continue
 
+        if not _is_removable_video_node(resolved):
+            continue
+
         devices[index] = CameraDevice(
             index=index, device_path=resolved, by_id_path=entry
         )
 
     return [devices[i] for i in sorted(devices)]
+
+
+def require_usb_webcam() -> CameraDevice:
+    """Return the first detected external USB webcam, or raise CameraError."""
+    devices: list[CameraDevice] = detect_usb_webcams()
+    if devices:
+        return devices[0]
+
+    msg: str = (
+        "No external USB webcam was detected. "
+        "Built-in cameras are not allowed for this operation."
+    )
+    raise CameraError(msg)
 
 
 def capture_one_frame(
@@ -94,3 +134,9 @@ def capture_one_frame(
         cap.release()
 
     return output
+
+
+def capture_one_frame_from_usb(output_path: str | Path, warmup_frames: int = 5) -> Path:
+    """Capture one frame from the detected external USB webcam only."""
+    usb_camera: CameraDevice = require_usb_webcam()
+    return capture_one_frame(usb_camera.index, output_path, warmup_frames=warmup_frames)
