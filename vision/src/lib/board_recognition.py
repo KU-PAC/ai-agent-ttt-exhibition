@@ -143,6 +143,26 @@ def _build_contours_overlay(
     return overlay
 
 
+def _extract_largest_connected_component(mask: UInt8Array) -> UInt8Array:
+    """Keep only the largest foreground connected component in a binary mask."""
+    num_labels: int
+    labels: npt.NDArray[np.int32]
+    stats: npt.NDArray[np.int32]
+    _centroids: FloatArray
+    num_labels, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        mask,
+        connectivity=8,
+    )
+    if num_labels <= 1:
+        return mask
+
+    foreground_areas: npt.NDArray[np.int32] = stats[1:, cv2.CC_STAT_AREA]
+    largest_label: int = int(np.argmax(foreground_areas)) + 1
+    largest_mask: UInt8Array = np.zeros_like(mask)
+    largest_mask[labels == largest_label] = 255
+    return largest_mask
+
+
 def detect_board_corners(frame: UInt8Array) -> FloatArray:
     """Detect board corners as a 4-point polygon from an input frame."""
     corners, _ = detect_board_corners_with_debug(frame)
@@ -170,6 +190,7 @@ def detect_board_corners_with_debug(
         np.ones((5, 5), dtype=np.uint8),
         iterations=1,
     )
+    cleaned = _extract_largest_connected_component(cleaned)
 
     contours, _ = cv2.findContours(cleaned, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     frame_height: int
