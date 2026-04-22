@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 CURRENT_FILE = Path(__file__).resolve()
 PROJECT_SRC = CURRENT_FILE.parents[2]
@@ -17,11 +18,13 @@ from lib.board_recognition import (
 
 
 def _sample_image_path() -> Path:
-    return CURRENT_FILE.parent / "test_data" / "data_01.jpg"
+    return CURRENT_FILE.parent / "test_data" / "camera_frame_roi.jpg"
 
 
 def _output_image_path() -> Path:
-    return CURRENT_FILE.parents[3] / "output" / "board_data_01_visualization.jpg"
+    return (
+        CURRENT_FILE.parents[3] / "output" / "camera_frame_roi_board_visualization.jpg"
+    )
 
 
 def test_detect_and_rectify_board_with_sample_image() -> None:
@@ -35,6 +38,9 @@ def test_detect_and_rectify_board_with_sample_image() -> None:
     assert result.warped.shape[0] == 300
     assert result.warped.shape[1] == 300
     assert result.corners.shape == (4, 2)
+
+    contour_area = float(cv2.contourArea(result.corners.astype(np.float32)))
+    assert contour_area > 10_000.0
 
     visualization = build_detection_visualization(frame, result.corners, result.warped)
 

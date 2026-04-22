@@ -25,11 +25,12 @@ class BoardDetectionResult:
 
 DEFAULT_WARP_WIDTH: Final[int] = 300
 DEFAULT_WARP_HEIGHT: Final[int] = 300
+QUAD_VERTEX_COUNT: Final[int] = 4
 
 
 def _order_corners(corners: FloatArray) -> FloatArray:
     """Sort 4 points into top-left, top-right, bottom-right, bottom-left order."""
-    if corners.shape != (4, 2):
+    if corners.shape != (QUAD_VERTEX_COUNT, 2):
         msg: str = f"Expected (4,2) corners, got {corners.shape}."
         raise BoardRecognitionError(msg)
 
@@ -58,8 +59,8 @@ def _is_valid_board_candidate(
     if not cv2.isContourConvex(polygon):
         return False
 
-    corners: npt.NDArray[np.int32] = polygon.reshape(4, 2)
-    margin: int = 8
+    corners: npt.NDArray[np.int32] = polygon.reshape(QUAD_VERTEX_COUNT, 2)
+    margin: int = 4
     for point in corners:
         x: int = int(point[0])
         y: int = int(point[1])
@@ -71,21 +72,14 @@ def _is_valid_board_candidate(
     return True
 
 
-def detect_board_corners(frame: UInt8Array) -> FloatArray:
-    """Detect board corners as a 4-point polygon from an input frame."""
-    gray: UInt8Array = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    blurred: UInt8Array = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    edges: UInt8Array = cv2.Canny(blurred, 50, 150)
-    kernel: UInt8Array = np.ones((3, 3), dtype=np.uint8)
-    closed: UInt8Array = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-    contours, _ = cv2.findContours(closed, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    frame_height: int
-    frame_width: int
-    frame_height, frame_width = frame.shape[:2]
-    min_area: float = float(frame_width * frame_height) * 0.02
-
+def _largest_quadrilateral(
+    contours: tuple[npt.NDArray[np.int32], ...] | list[npt.NDArray[np.int32]],
+    frame_width: int,
+    frame_height: int,
+) -> FloatArray | None:
+    """Find the largest valid 4-corner polygon in the contour list."""
+    min_area: float = float(frame_width * frame_height) * 0.08
+    max_area: float = float(frame_width * frame_height) * 0.95
     best_polygon: npt.NDArray[np.int32] | None = None
     best_area: float = 0.0
 
@@ -95,25 +89,79 @@ def detect_board_corners(frame: UInt8Array) -> FloatArray:
             continue
 
         polygon: npt.NDArray[np.int32] = cv2.approxPolyDP(
-            contour, 0.02 * perimeter, True
+            contour,
+            0.02 * perimeter,
+            True,
         )
-        if len(polygon) != 4:
+        if len(polygon) != QUAD_VERTEX_COUNT:
             continue
 
         if not _is_valid_board_candidate(polygon, frame_width, frame_height, min_area):
             continue
 
         area: float = float(cv2.contourArea(polygon))
+        if area > max_area:
+            continue
         if area > best_area:
             best_area = area
             best_polygon = polygon
 
     if best_polygon is None:
+        return None
+
+    corners: FloatArray = best_polygon.reshape(QUAD_VERTEX_COUNT, 2).astype(np.float32)
+    return _order_corners(corners)
+
+
+def detect_board_corners(frame: UInt8Array) -> FloatArray:
+    """Detect board corners as a 4-point polygon from an input frame."""
+    gray: UInt8Array = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blurred: UInt8Array = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    binary: UInt8Array = cv2.adaptiveThreshold(
+        blurred,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        25,
+        8,
+    )
+    cleaned: UInt8Array = cv2.morphologyEx(
+        binary,
+        cv2.MORPH_CLOSE,
+        np.ones((5, 5), dtype=np.uint8),
+        iterations=1,
+    )
+
+    contours, _ = cv2.findContours(cleaned, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    frame_height: int
+    frame_width: int
+    frame_height, frame_width = frame.shape[:2]
+
+    corners: FloatArray | None = _largest_quadrilateral(
+        contours,
+        frame_width,
+        frame_height,
+    )
+    if corners is not None:
+        return corners
+
+    # Fallback: fit a rectangle to the largest contour in difficult frames.
+    if not contours:
         msg: str = "Failed to detect board contour with 4 corners."
         raise BoardRecognitionError(msg)
 
-    corners: FloatArray = best_polygon.reshape(4, 2).astype(np.float32)
-    return _order_corners(corners)
+    largest_contour: npt.NDArray[np.int32] = max(contours, key=cv2.contourArea)
+    if (
+        float(cv2.contourArea(largest_contour))
+        < float(frame_width * frame_height) * 0.05
+    ):
+        msg = "Failed to detect a sufficiently large board contour."
+        raise BoardRecognitionError(msg)
+
+    rect = cv2.minAreaRect(largest_contour)
+    box: FloatArray = cv2.boxPoints(rect).astype(np.float32)
+    return _order_corners(box)
 
 
 def rectify_board_image(
@@ -157,7 +205,11 @@ def build_detection_visualization(
 ) -> UInt8Array:
     """Create a side-by-side visualization of detection and corrected board image."""
     overlay: UInt8Array = frame.copy()
-    poly: npt.NDArray[np.int32] = corners.astype(np.int32).reshape(4, 1, 2)
+    poly: npt.NDArray[np.int32] = corners.astype(np.int32).reshape(
+        QUAD_VERTEX_COUNT,
+        1,
+        2,
+    )
     cv2.polylines(overlay, [poly], True, (0, 255, 0), 3)
 
     for idx, point in enumerate(corners.astype(np.int32)):
