@@ -20,10 +20,21 @@ class BoardRecognitionError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class BoardDetectionResult:
-    """Result object containing detected corners and perspective-corrected image."""
+    """Result object containing board geometry and corrected board image."""
 
     corners: FloatArray
     warped: UInt8Array
+    cells: tuple["BoardCell", ...]
+
+
+@dataclass(frozen=True, slots=True)
+class BoardCell:
+    """Single board square geometry in row-major order."""
+
+    row: int
+    col: int
+    corners: FloatArray
+    center: FloatArray
 
 
 @dataclass(frozen=True, slots=True)
@@ -411,6 +422,71 @@ def _grid_outer_corners(grid_points: Float64Array) -> FloatArray:
     return _order_corners(raw_corners)
 
 
+def _canonicalize_grid_points(grid_points: Float64Array) -> Float64Array:
+    """Orient a 4x4 vertex grid to top-left -> bottom-right row-major form."""
+    if grid_points.shape != (GRID_LINE_COUNT, GRID_LINE_COUNT, 2):
+        msg = f"Unexpected grid shape: {grid_points.shape}."
+        raise BoardRecognitionError(msg)
+
+    transposed = np.transpose(grid_points, (1, 0, 2))
+    candidates = [
+        grid_points,
+        np.flip(grid_points, axis=0),
+        np.flip(grid_points, axis=1),
+        np.flip(np.flip(grid_points, axis=0), axis=1),
+        transposed,
+        np.flip(transposed, axis=0),
+        np.flip(transposed, axis=1),
+        np.flip(np.flip(transposed, axis=0), axis=1),
+    ]
+
+    best_error: float = float("inf")
+    best_grid: Float64Array | None = None
+    for candidate in candidates:
+        corners_seq = np.array(
+            [
+                candidate[0, 0],
+                candidate[0, -1],
+                candidate[-1, -1],
+                candidate[-1, 0],
+            ],
+            dtype=np.float32,
+        )
+        ordered = _order_corners(corners_seq)
+        error = float(np.sum(np.linalg.norm(corners_seq - ordered, axis=1)))
+        if error < best_error:
+            best_error = error
+            best_grid = candidate
+
+    if best_grid is None:
+        msg = "Failed to orient board grid points."
+        raise BoardRecognitionError(msg)
+
+    return np.array(best_grid, dtype=np.float64)
+
+
+def _build_board_cells(grid_points: Float64Array) -> tuple[BoardCell, ...]:
+    """Build row-major 3x3 square geometry from a 4x4 vertex grid."""
+    canonical = _canonicalize_grid_points(grid_points)
+    cells: list[BoardCell] = []
+
+    for row in range(GRID_LINE_COUNT - 1):
+        for col in range(GRID_LINE_COUNT - 1):
+            corners = np.array(
+                [
+                    canonical[row, col],
+                    canonical[row, col + 1],
+                    canonical[row + 1, col + 1],
+                    canonical[row + 1, col],
+                ],
+                dtype=np.float32,
+            )
+            center = np.mean(corners, axis=0).astype(np.float32)
+            cells.append(BoardCell(row=row, col=col, corners=corners, center=center))
+
+    return tuple(cells)
+
+
 def _build_grid_overlay(
     frame: UInt8Array,
     segments: Int32Array,
@@ -700,10 +776,10 @@ def detect_board_corners(frame: UInt8Array) -> FloatArray:
     return corners
 
 
-def detect_board_corners_with_debug(
+def _detect_board_geometry_with_debug(
     frame: UInt8Array,
-) -> tuple[FloatArray, BoardDetectionDebug]:
-    """Detect board corners via VP-aware 3x3 grid reconstruction."""
+) -> tuple[FloatArray, Float64Array, BoardDetectionDebug]:
+    """Detect board corners and full grid vertices with debug artifacts."""
     gray: UInt8Array = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     blurred: UInt8Array = cv2.GaussianBlur(gray, (5, 5), 0)
 
@@ -819,7 +895,15 @@ def detect_board_corners_with_debug(
         contours_overlay=overlay,
         vertex_directions_overlay=directions_overlay,
     )
-    return best_corners, debug
+    return best_corners, best_grid_points, debug
+
+
+def detect_board_corners_with_debug(
+    frame: UInt8Array,
+) -> tuple[FloatArray, BoardDetectionDebug]:
+    """Detect board corners via VP-aware 3x3 grid reconstruction."""
+    corners, _grid_points, debug = _detect_board_geometry_with_debug(frame)
+    return corners, debug
 
 
 def rectify_board_image(
@@ -851,9 +935,10 @@ def detect_and_rectify_board(
     height: int = DEFAULT_WARP_HEIGHT,
 ) -> BoardDetectionResult:
     """Detect board corners and return a perspective-corrected board image."""
-    corners: FloatArray = detect_board_corners(frame)
+    corners, grid_points, _debug = _detect_board_geometry_with_debug(frame)
     warped: UInt8Array = rectify_board_image(frame, corners, width=width, height=height)
-    return BoardDetectionResult(corners=corners, warped=warped)
+    cells = _build_board_cells(grid_points)
+    return BoardDetectionResult(corners=corners, warped=warped, cells=cells)
 
 
 def detect_and_rectify_board_with_debug(
@@ -862,9 +947,10 @@ def detect_and_rectify_board_with_debug(
     height: int = DEFAULT_WARP_HEIGHT,
 ) -> tuple[BoardDetectionResult, BoardDetectionDebug]:
     """Detect board and return both corrected image and pipeline debug images."""
-    corners, debug = detect_board_corners_with_debug(frame)
+    corners, grid_points, debug = _detect_board_geometry_with_debug(frame)
     warped: UInt8Array = rectify_board_image(frame, corners, width=width, height=height)
-    return BoardDetectionResult(corners=corners, warped=warped), debug
+    cells = _build_board_cells(grid_points)
+    return BoardDetectionResult(corners=corners, warped=warped, cells=cells), debug
 
 
 def build_detection_visualization(

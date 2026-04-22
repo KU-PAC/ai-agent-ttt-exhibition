@@ -60,6 +60,13 @@ def test_detect_and_rectify_board_with_sample_image() -> None:
     assert result.warped.shape[0] == 300
     assert result.warped.shape[1] == 300
     assert result.corners.shape == (4, 2)
+    assert len(result.cells) == 9
+
+    first_cell = result.cells[0]
+    assert first_cell.row == 0
+    assert first_cell.col == 0
+    assert first_cell.corners.shape == (4, 2)
+    assert first_cell.center.shape == (2,)
 
     contour_area = float(cv2.contourArea(result.corners.astype(np.float32)))
     assert contour_area > 10_000.0
