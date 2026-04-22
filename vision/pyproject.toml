@@ -76,6 +76,5 @@ plugins = ["pydantic.mypy"]
 
 # Pydanticモデルに対する厳格な型チェック設定
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["src/lib/test"]
 pythonpath = ["."]
-asyncio_mode = "auto"
