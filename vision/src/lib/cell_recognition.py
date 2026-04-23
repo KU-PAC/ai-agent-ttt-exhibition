@@ -20,6 +20,8 @@ PAIR_VALUE_COUNT: Final[int] = 2
 CELL_CORNER_COUNT: Final[int] = 4
 MIN_VALID_WARP_SIZE: Final[int] = 2
 EXPECTED_CELL_COUNT: Final[int] = BOARD_SIZE * BOARD_SIZE
+HSV_COMPONENT_COUNT: Final[int] = 3
+BLUE_H_MAX_FIXED: Final[int] = 150
 
 
 class CellRecognitionError(RuntimeError):
@@ -40,12 +42,8 @@ class BoardCellGeometry:
 class CellRecognitionConfig:
     """Color and ROI parameters for piece-state recognition."""
 
-    red_lower1: tuple[int, int, int] = (0, 100, 50)
-    red_upper1: tuple[int, int, int] = (10, 255, 255)
-    red_lower2: tuple[int, int, int] = (170, 100, 50)
-    red_upper2: tuple[int, int, int] = (180, 255, 255)
-    blue_lower: tuple[int, int, int] = (100, 100, 50)
-    blue_upper: tuple[int, int, int] = (130, 255, 255)
+    color_s_threshold: int = 100
+    blue_h_min: int = 100
     min_color_ratio: float = 0.15
     crop_margin_ratio: float = 0.10
     cell_warp_size: int = 100
@@ -59,6 +57,35 @@ CORNER_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)"
 )
 
+CONFIG_KEY_RED_LOWER1: Final[str] = "red_lower1"
+CONFIG_KEY_RED_UPPER1: Final[str] = "red_upper1"
+CONFIG_KEY_RED_LOWER2: Final[str] = "red_lower2"
+CONFIG_KEY_RED_UPPER2: Final[str] = "red_upper2"
+CONFIG_KEY_BLUE_LOWER: Final[str] = "blue_lower"
+CONFIG_KEY_BLUE_UPPER: Final[str] = "blue_upper"
+CONFIG_KEY_COLOR_S_THRESHOLD: Final[str] = "color_s_threshold"
+CONFIG_KEY_BLUE_H_MIN: Final[str] = "blue_h_min"
+CONFIG_KEY_MIN_COLOR_RATIO: Final[str] = "min_color_ratio"
+CONFIG_KEY_CROP_MARGIN_RATIO: Final[str] = "crop_margin_ratio"
+CONFIG_KEY_CELL_WARP_SIZE: Final[str] = "cell_warp_size"
+
+CONFIG_KEYS: Final[tuple[str, ...]] = (
+    CONFIG_KEY_COLOR_S_THRESHOLD,
+    CONFIG_KEY_BLUE_H_MIN,
+    CONFIG_KEY_MIN_COLOR_RATIO,
+    CONFIG_KEY_CROP_MARGIN_RATIO,
+    CONFIG_KEY_CELL_WARP_SIZE,
+)
+
+LEGACY_CONFIG_KEYS: Final[tuple[str, ...]] = (
+    CONFIG_KEY_RED_LOWER1,
+    CONFIG_KEY_RED_UPPER1,
+    CONFIG_KEY_RED_LOWER2,
+    CONFIG_KEY_RED_UPPER2,
+    CONFIG_KEY_BLUE_LOWER,
+    CONFIG_KEY_BLUE_UPPER,
+)
+
 
 def _parse_pair(pair_text: str) -> FloatArray:
     values = [v.strip() for v in pair_text.split(",")]
@@ -66,6 +93,135 @@ def _parse_pair(pair_text: str) -> FloatArray:
         msg = f"Invalid pair text: {pair_text!r}"
         raise CellRecognitionError(msg)
     return np.array([float(values[0]), float(values[1])], dtype=np.float32)
+
+
+def _parse_hsv_triplet(value_text: str, key: str) -> tuple[int, int, int]:
+    parts = [v.strip() for v in value_text.split(",")]
+    if len(parts) != HSV_COMPONENT_COUNT:
+        msg = f"{key} must have exactly 3 comma-separated integers."
+        raise CellRecognitionError(msg)
+
+    values = tuple(int(part) for part in parts)
+    h, s, v = values
+    if not (0 <= h <= 180 and 0 <= s <= 255 and 0 <= v <= 255):
+        msg = f"{key} has out-of-range HSV values: {values}."
+        raise CellRecognitionError(msg)
+    return values
+
+
+def _config_to_map(config: CellRecognitionConfig) -> dict[str, str]:
+    return {
+        CONFIG_KEY_COLOR_S_THRESHOLD: str(config.color_s_threshold),
+        CONFIG_KEY_BLUE_H_MIN: str(config.blue_h_min),
+        CONFIG_KEY_MIN_COLOR_RATIO: f"{config.min_color_ratio:.6f}",
+        CONFIG_KEY_CROP_MARGIN_RATIO: f"{config.crop_margin_ratio:.6f}",
+        CONFIG_KEY_CELL_WARP_SIZE: str(config.cell_warp_size),
+    }
+
+
+def _validate_config(config: CellRecognitionConfig) -> CellRecognitionConfig:
+    if not (0 <= config.color_s_threshold <= 255):
+        msg = f"{CONFIG_KEY_COLOR_S_THRESHOLD} must be within [0, 255]."
+        raise CellRecognitionError(msg)
+    if not (0 <= config.blue_h_min <= BLUE_H_MAX_FIXED):
+        msg = f"{CONFIG_KEY_BLUE_H_MIN} must be within [0, {BLUE_H_MAX_FIXED}]."
+        raise CellRecognitionError(msg)
+    if not (0.0 <= config.min_color_ratio <= 1.0):
+        msg = f"{CONFIG_KEY_MIN_COLOR_RATIO} must be within [0, 1]."
+        raise CellRecognitionError(msg)
+    if not (0.0 <= config.crop_margin_ratio < 0.5):
+        msg = f"{CONFIG_KEY_CROP_MARGIN_RATIO} must be within [0, 0.5)."
+        raise CellRecognitionError(msg)
+    if config.cell_warp_size <= MIN_VALID_WARP_SIZE:
+        msg = f"{CONFIG_KEY_CELL_WARP_SIZE} must be > {MIN_VALID_WARP_SIZE}."
+        raise CellRecognitionError(msg)
+    return config
+
+
+def format_cell_recognition_config_text(config: CellRecognitionConfig) -> str:
+    """Format cell-recognition thresholds/config to key=value text."""
+    lines = ["# cell recognition thresholds", "# format: key=value"]
+    config_map = _config_to_map(config)
+    lines.extend(f"{key}={config_map[key]}" for key in CONFIG_KEYS)
+    return "\n".join(lines) + "\n"
+
+
+def parse_cell_recognition_config_text(text: str) -> CellRecognitionConfig:
+    """Parse key=value text and build CellRecognitionConfig."""
+    default_map = _config_to_map(CellRecognitionConfig())
+    values: dict[str, str] = dict(default_map)
+    legacy_values: dict[str, str] = {}
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            msg = f"Invalid config line (expected key=value): {raw_line!r}"
+            raise CellRecognitionError(msg)
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key in values:
+            values[key] = value
+            continue
+        if key in LEGACY_CONFIG_KEYS:
+            legacy_values[key] = value
+            continue
+        msg = f"Unknown config key: {key}"
+        raise CellRecognitionError(msg)
+
+    if legacy_values:
+        if CONFIG_KEY_BLUE_LOWER in legacy_values:
+            blue_lower = _parse_hsv_triplet(
+                legacy_values[CONFIG_KEY_BLUE_LOWER],
+                CONFIG_KEY_BLUE_LOWER,
+            )
+            values[CONFIG_KEY_BLUE_H_MIN] = str(blue_lower[0])
+
+            sat_candidates = [blue_lower[1]]
+            if CONFIG_KEY_RED_LOWER1 in legacy_values:
+                sat_candidates.append(
+                    _parse_hsv_triplet(
+                        legacy_values[CONFIG_KEY_RED_LOWER1],
+                        CONFIG_KEY_RED_LOWER1,
+                    )[1]
+                )
+            if CONFIG_KEY_RED_LOWER2 in legacy_values:
+                sat_candidates.append(
+                    _parse_hsv_triplet(
+                        legacy_values[CONFIG_KEY_RED_LOWER2],
+                        CONFIG_KEY_RED_LOWER2,
+                    )[1]
+                )
+            values[CONFIG_KEY_COLOR_S_THRESHOLD] = str(max(sat_candidates))
+
+    config = CellRecognitionConfig(
+        color_s_threshold=int(values[CONFIG_KEY_COLOR_S_THRESHOLD]),
+        blue_h_min=int(values[CONFIG_KEY_BLUE_H_MIN]),
+        min_color_ratio=float(values[CONFIG_KEY_MIN_COLOR_RATIO]),
+        crop_margin_ratio=float(values[CONFIG_KEY_CROP_MARGIN_RATIO]),
+        cell_warp_size=int(values[CONFIG_KEY_CELL_WARP_SIZE]),
+    )
+    return _validate_config(config)
+
+
+def load_cell_recognition_config(file_path: str | Path) -> CellRecognitionConfig:
+    """Load thresholds/config from a key=value text file."""
+    path = Path(file_path)
+    return parse_cell_recognition_config_text(path.read_text(encoding="utf-8"))
+
+
+def save_cell_recognition_config(
+    file_path: str | Path,
+    config: CellRecognitionConfig,
+) -> Path:
+    """Save thresholds/config to a key=value text file."""
+    path = Path(file_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(format_cell_recognition_config_text(config), encoding="utf-8")
+    return path
 
 
 def _order_corners(corners: FloatArray) -> FloatArray:
@@ -182,30 +338,33 @@ def _extract_cell_patch(
     return patch[margin : size - margin, margin : size - margin]
 
 
+def extract_cell_patch(
+    frame: UInt8Array,
+    corners: FloatArray,
+    config: CellRecognitionConfig | None = None,
+) -> UInt8Array:
+    """Public wrapper to extract perspective-corrected cell patch."""
+    cfg = config or CellRecognitionConfig()
+    return _extract_cell_patch(frame, corners, cfg)
+
+
 def recognize_cell_state(
     cell_patch: UInt8Array,
     config: CellRecognitionConfig | None = None,
 ) -> int:
     """Classify one cell patch to 0=empty, 1=red, 2=blue."""
     cfg = config or CellRecognitionConfig()
+    _validate_config(cfg)
     hsv = cv2.cvtColor(cell_patch, cv2.COLOR_BGR2HSV)
 
-    blue_mask = cv2.inRange(
-        hsv,
-        np.array(cfg.blue_lower, dtype=np.uint8),
-        np.array(cfg.blue_upper, dtype=np.uint8),
-    )
-    red_mask1 = cv2.inRange(
-        hsv,
-        np.array(cfg.red_lower1, dtype=np.uint8),
-        np.array(cfg.red_upper1, dtype=np.uint8),
-    )
-    red_mask2 = cv2.inRange(
-        hsv,
-        np.array(cfg.red_lower2, dtype=np.uint8),
-        np.array(cfg.red_upper2, dtype=np.uint8),
-    )
-    red_mask = cv2.bitwise_or(red_mask1, red_mask2)
+    hue = hsv[:, :, 0]
+    sat = hsv[:, :, 1]
+    colored = sat >= cfg.color_s_threshold
+    blue_region = np.logical_and(hue >= cfg.blue_h_min, hue <= BLUE_H_MAX_FIXED)
+    blue_mask = np.where(np.logical_and(colored, blue_region), 255, 0).astype(np.uint8)
+    red_mask = np.where(
+        np.logical_and(colored, np.logical_not(blue_region)), 255, 0
+    ).astype(np.uint8)
 
     red_count = int(cv2.countNonZero(red_mask))
     blue_count = int(cv2.countNonZero(blue_mask))
@@ -247,6 +406,7 @@ def recognize_board_state_from_files(
     frame_image_path: str | Path,
     board_result_text_path: str | Path,
     config: CellRecognitionConfig | None = None,
+    config_file_path: str | Path | None = None,
 ) -> list[list[int]]:
     """Convenience API for offline tests using saved image and geometry text."""
     frame_path = Path(frame_image_path)
@@ -256,7 +416,10 @@ def recognize_board_state_from_files(
         raise CellRecognitionError(msg)
 
     cells = parse_board_cells_from_file(board_result_text_path)
-    return recognize_board_state_from_cells(frame, cells, config=config)
+    resolved_config = config
+    if resolved_config is None and config_file_path is not None:
+        resolved_config = load_cell_recognition_config(config_file_path)
+    return recognize_board_state_from_cells(frame, cells, config=resolved_config)
 
 
 def format_board_state_text(board_state: list[list[int]]) -> str:

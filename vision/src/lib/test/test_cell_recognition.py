@@ -17,9 +17,12 @@ from lib.cell_recognition import (
     CellRecognitionConfig,
     build_board_state_visualization,
     format_board_state_text,
+    format_cell_recognition_config_text,
+    load_cell_recognition_config,
     parse_board_cells_from_file,
     recognize_board_state_from_cells,
     recognize_board_state_from_files,
+    save_cell_recognition_config,
 )
 
 
@@ -29,6 +32,14 @@ def _sample_image_path() -> Path:
 
 def _board_result_path() -> Path:
     return CURRENT_FILE.parent / "test_data" / "08_board_recognition_result.txt"
+
+
+def _threshold_config_path() -> Path:
+    return CURRENT_FILE.parent / "test_data" / "cell_thresholds.txt"
+
+
+def _test_config() -> CellRecognitionConfig:
+    return load_cell_recognition_config(_threshold_config_path())
 
 
 def _artifact_output_dir() -> Path:
@@ -70,14 +81,12 @@ def test_recognize_board_state_from_files_sample_image() -> None:
     frame = cv2.imread(str(_sample_image_path()))
     assert frame is not None
     cells = parse_board_cells_from_file(_board_result_path())
+    config = _test_config()
 
     board_state = recognize_board_state_from_cells(
         frame,
         cells,
-        config=CellRecognitionConfig(
-            min_color_ratio=0.15,
-            crop_margin_ratio=0.10,
-        ),
+        config=config,
     )
 
     _write_cell_recognition_artifacts(frame, cells, board_state)
@@ -102,6 +111,7 @@ def test_recognize_board_state_from_cells_with_synthetic_red_piece() -> None:
 
     cells = parse_board_cells_from_file(_board_result_path())
     target = cells[4]
+    config = _test_config()
 
     polygon = np.round(target.corners).astype(np.int32)
     cv2.fillConvexPoly(frame, polygon, color=(0, 0, 255))
@@ -109,10 +119,7 @@ def test_recognize_board_state_from_cells_with_synthetic_red_piece() -> None:
     board_state = recognize_board_state_from_cells(
         frame,
         cells,
-        config=CellRecognitionConfig(
-            min_color_ratio=0.10,
-            crop_margin_ratio=0.10,
-        ),
+        config=config,
     )
 
     assert board_state[1][1] == CELL_RED
@@ -122,13 +129,33 @@ def test_recognize_board_state_from_files_api() -> None:
     board_state = recognize_board_state_from_files(
         _sample_image_path(),
         _board_result_path(),
-        config=CellRecognitionConfig(
-            min_color_ratio=0.15,
-            crop_margin_ratio=0.10,
-        ),
+        config_file_path=_threshold_config_path(),
     )
     assert board_state == [
         [CELL_EMPTY, CELL_EMPTY, CELL_EMPTY],
         [CELL_EMPTY, CELL_EMPTY, CELL_EMPTY],
         [CELL_EMPTY, CELL_EMPTY, CELL_EMPTY],
     ]
+
+
+def test_cell_recognition_config_file_roundtrip_and_usage(tmp_path: Path) -> None:
+    config = _test_config()
+
+    config_path = tmp_path / "cell_thresholds.txt"
+    saved_path = save_cell_recognition_config(config_path, config)
+    loaded = load_cell_recognition_config(saved_path)
+
+    assert loaded == config
+
+    text = format_cell_recognition_config_text(config)
+    assert "color_s_threshold=100" in text
+    assert "blue_h_min=100" in text
+    assert "cell_warp_size=100" in text
+
+    board_state = recognize_board_state_from_files(
+        _sample_image_path(),
+        _board_result_path(),
+        config_file_path=config_path,
+    )
+    assert len(board_state) == 3
+    assert all(len(row) == 3 for row in board_state)
