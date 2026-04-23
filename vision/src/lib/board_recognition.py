@@ -884,13 +884,27 @@ def _detect_board_geometry_with_debug(
         msg: str = "Failed to detect enough board line segments."
         raise BoardRecognitionError(msg)
 
-    mask_a, mask_b = _cluster_segment_families(segments)
+    raw_mask_a, raw_mask_b = _cluster_segment_families(segments)
 
-    support_segments = _select_support_segments(segments, mask_a, mask_b)
+    support_segments = _select_support_segments(segments, raw_mask_a, raw_mask_b)
     line_support_mask = _build_line_support_mask(cleaned.shape, support_segments)
 
-    lines_a, weights_a = _build_family_lines(segments[mask_a])
-    lines_b, weights_b = _build_family_lines(segments[mask_b])
+    geometry_segments = support_segments
+    try:
+        mask_a, mask_b = _cluster_segment_families(geometry_segments)
+        lines_a, weights_a = _build_family_lines(geometry_segments[mask_a])
+        lines_b, weights_b = _build_family_lines(geometry_segments[mask_b])
+
+        if len(lines_a) < GRID_LINE_COUNT or len(lines_b) < GRID_LINE_COUNT:
+            raise BoardRecognitionError(
+                "Insufficient reliable lines after directional clustering."
+            )
+    except BoardRecognitionError:
+        # Fallback to raw segments when the support subset is too strict.
+        geometry_segments = segments
+        mask_a, mask_b = raw_mask_a, raw_mask_b
+        lines_a, weights_a = _build_family_lines(geometry_segments[mask_a])
+        lines_b, weights_b = _build_family_lines(geometry_segments[mask_b])
 
     if len(lines_a) < GRID_LINE_COUNT or len(lines_b) < GRID_LINE_COUNT:
         msg = "Insufficient reliable lines after directional clustering."
