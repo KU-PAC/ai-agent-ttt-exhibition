@@ -44,6 +44,7 @@ class BoardDetectionDebug:
     gray: UInt8Array
     binary: UInt8Array
     cleaned: UInt8Array
+    line_support_mask: UInt8Array
     contours_overlay: UInt8Array
     vertex_directions_overlay: UInt8Array
 
@@ -120,6 +121,85 @@ def _detect_line_segments(mask: UInt8Array) -> Int32Array:
     if lines is None:
         return np.empty((0, 4), dtype=np.int32)
     return lines.reshape(-1, 4).astype(np.int32)
+
+
+def _build_line_support_mask(
+    shape: tuple[int, int], segments: Int32Array
+) -> UInt8Array:
+    """Rasterize detected line segments to a mask used for ray support checks."""
+    support_mask = np.zeros(shape, dtype=np.uint8)
+    if len(segments) == 0:
+        return support_mask
+
+    height, width = shape
+    base = min(height, width)
+
+    line_thickness = max(1, int(round(base * 0.006)))
+    for x1, y1, x2, y2 in segments.tolist():
+        cv2.line(
+            support_mask,
+            (x1, y1),
+            (x2, y2),
+            255,
+            line_thickness,
+            cv2.LINE_AA,
+        )
+
+    kernel_size = max(3, int(round(base * 0.012)))
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
+    return cv2.dilate(support_mask, kernel, iterations=1)
+
+
+def _select_support_segments(
+    segments: Int32Array,
+    family_mask_a: npt.NDArray[np.bool_],
+    family_mask_b: npt.NDArray[np.bool_],
+) -> Int32Array:
+    """Select stable line segments for support-mask rasterization.
+
+    The mask should favor long, dominant board-line segments and suppress
+    short arc fragments from piece contours.
+    """
+
+    selected_families: list[Int32Array] = []
+    for family_mask in (family_mask_a, family_mask_b):
+        family_segments = segments[family_mask]
+        if len(family_segments) == 0:
+            continue
+
+        lengths = _segment_lengths(family_segments)
+        if len(family_segments) <= GRID_LINE_COUNT:
+            selected_families.append(family_segments)
+            continue
+
+        percentile_floor = float(np.percentile(lengths, 55.0))
+        relative_floor = float(np.max(lengths) * 0.35)
+        length_floor = max(percentile_floor, relative_floor)
+        keep = lengths >= length_floor
+
+        # Keep at least 4 lines per family to preserve grid support.
+        if int(np.count_nonzero(keep)) < GRID_LINE_COUNT:
+            top_idx = np.argsort(lengths)[-GRID_LINE_COUNT:]
+            keep = np.zeros(len(family_segments), dtype=bool)
+            keep[top_idx] = True
+
+        selected = family_segments[keep]
+        if len(selected) > 24:
+            selected_lengths = _segment_lengths(selected)
+            top_idx = np.argsort(selected_lengths)[-24:]
+            selected = selected[top_idx]
+
+        selected_families.append(selected)
+
+    if not selected_families:
+        return segments
+
+    selected_segments = np.concatenate(selected_families, axis=0).astype(np.int32)
+    if len(selected_segments) < 8:
+        return segments
+    return selected_segments
 
 
 def _segment_to_line(segment: npt.NDArray[np.int32]) -> Float64Array:
@@ -806,6 +886,9 @@ def _detect_board_geometry_with_debug(
 
     mask_a, mask_b = _cluster_segment_families(segments)
 
+    support_segments = _select_support_segments(segments, mask_a, mask_b)
+    line_support_mask = _build_line_support_mask(cleaned.shape, support_segments)
+
     lines_a, weights_a = _build_family_lines(segments[mask_a])
     lines_b, weights_b = _build_family_lines(segments[mask_b])
 
@@ -855,7 +938,7 @@ def _detect_board_geometry_with_debug(
 
             score, candidate_corners, candidate_counts, candidate_flags = (
                 _score_grid_candidate(
-                    cleaned,
+                    line_support_mask,
                     frame_area,
                     candidate_grid,
                     vp_a,
@@ -892,6 +975,7 @@ def _detect_board_geometry_with_debug(
         gray=gray,
         binary=binary,
         cleaned=cleaned,
+        line_support_mask=line_support_mask,
         contours_overlay=overlay,
         vertex_directions_overlay=directions_overlay,
     )

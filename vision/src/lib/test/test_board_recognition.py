@@ -66,6 +66,7 @@ def _write_debug_artifacts(frame, result, debug) -> None:
     cv2.imwrite(str(output_dir / "01_gray.jpg"), debug.gray)
     cv2.imwrite(str(output_dir / "02_binary.jpg"), debug.binary)
     cv2.imwrite(str(output_dir / "03_cleaned.jpg"), debug.cleaned)
+    cv2.imwrite(str(output_dir / "04_line_support_mask.jpg"), debug.line_support_mask)
     cv2.imwrite(str(output_dir / "04_contours_overlay.jpg"), debug.contours_overlay)
     cv2.imwrite(
         str(output_dir / "05_vertex_directions_overlay.jpg"),
