@@ -11,12 +11,14 @@ master モジュールが vision モジュールに要求する WebSocket 通信
 | プロトコル | WebSocket |
 | 接続先 | master が起動する WebSocket サーバー |
 | パス | `/vision` |
-| デフォルトアドレス | `ws://0.0.0.0:8765/vision` |
-| 環境変数 | `MASTER_HOST`（デフォルト: `0.0.0.0`）、`MASTER_PORT`（デフォルト: `8765`） |
+| デフォルトアドレス | `ws://127.0.0.1:8765/vision` |
+| 環境変数 | `MASTER_HOST`（デフォルト: `127.0.0.1`）、`MASTER_PORT`（デフォルト: `8765`） |
 | メッセージ形式 | JSON（UTF-8） |
 | 接続方向 | **vision クライアントが master サーバーへ接続する** |
 
 vision モジュールは起動後、上記アドレスへ WebSocket 接続を確立し、master からのリクエストを待機します。
+
+`MASTER_HOST` に `0.0.0.0` や `::` のような bind アドレスが設定された場合、vision クライアントは接続先として `127.0.0.1` を使用します。
 
 ---
 

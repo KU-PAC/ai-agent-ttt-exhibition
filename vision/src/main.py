@@ -38,7 +38,7 @@ class VisionRuntimeError(RuntimeError):
 class VisionConfig:
     """Runtime configuration for the vision websocket client."""
 
-    master_host: str = "0.0.0.0"
+    master_host: str = "127.0.0.1"
     master_port: int = 8765
     reconnect_delay_sec: float = 1.0
     warmup_frames: int = 5
@@ -73,10 +73,23 @@ def _env_float(name: str, default: float) -> float:
         raise VisionRuntimeError(msg) from exc
 
 
+def _resolve_master_host(raw_host: str | None) -> str:
+    host = (raw_host or "").strip()
+    if not host:
+        return "127.0.0.1"
+    if host in {"0.0.0.0", "::", "[::]"}:
+        logging.warning(
+            "MASTER_HOST=%s is a bind address. Use 127.0.0.1 as connect host.",
+            host,
+        )
+        return "127.0.0.1"
+    return host
+
+
 def load_config_from_env() -> VisionConfig:
     """Build runtime configuration from environment variables."""
     return VisionConfig(
-        master_host=os.getenv("MASTER_HOST", "0.0.0.0"),
+        master_host=_resolve_master_host(os.getenv("MASTER_HOST")),
         master_port=_env_int("MASTER_PORT", 8765),
         reconnect_delay_sec=_env_float("VISION_RECONNECT_DELAY", 1.0),
         warmup_frames=_env_int("VISION_WARMUP_FRAMES", 5),

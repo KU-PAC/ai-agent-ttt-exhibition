@@ -12,8 +12,22 @@ REQUEST_MESSAGE = {"type": "request_board_state", "payload": {}}
 EXPECTED_RESPONSE_TYPE = "board_state_response"
 
 
+def _resolve_master_host(raw_host: str | None) -> str:
+    host = (raw_host or "").strip()
+    if not host:
+        return "127.0.0.1"
+    if host in {"0.0.0.0", "::", "[::]"}:
+        print(
+            "[WARN] MASTER_HOST points to a bind address. "
+            "Use 127.0.0.1 for connection.",
+            file=sys.stderr,
+        )
+        return "127.0.0.1"
+    return host
+
+
 def _build_uri() -> str:
-    host = os.getenv("MASTER_HOST", "0.0.0.0")
+    host = _resolve_master_host(os.getenv("MASTER_HOST"))
     port = os.getenv("MASTER_PORT", "8765")
     return f"ws://{host}:{port}/vision"
 
