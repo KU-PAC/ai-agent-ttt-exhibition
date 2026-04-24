@@ -12,14 +12,15 @@ async def websocket_endpoint(ws: WebSocket):
         payload = data.get("payload")
 
         position = payload["position"]
+        dataset_repo_id = f"kupac/pick_place_fixed0{position}"
 
         cmd = [
             "lerobot-replay",
             "--robot.type=so101_follower",
             "--robot.port=/dev/ttyACM0",
             "--robot.id=F5",
-            "--dataset.repo_id=oyokoi451/pick_place_fixed3",
-            f"--dataset.episode={position}"
+            f"--dataset.repo_id={dataset_repo_id}",
+            "--dataset.episode=0"
         ]
 
         subprocess.run(cmd)
