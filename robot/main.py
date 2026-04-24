@@ -9,18 +9,15 @@ MASTER_URL = os.environ.get("MASTER_URL", "ws://localhost:8765")
 
 
 def reset_robot() -> None:
-    # Placeholder: reset behavior will be implemented later.
-    return
+    _run_dataset_replay("kupac/reset")
 
 
-def _run_replay(position: int) -> tuple[bool, str | None]:
-    dataset_repo_id = f"kupac/pick_place_fixed0{position}"
-
+def _run_dataset_replay(dataset_repo_id: str) -> tuple[bool, str | None]:
     cmd = [
         "lerobot-replay",
         "--robot.type=so101_follower",
-        "--robot.port=/dev/ttyACM0",
-        "--robot.id=F5",
+        "--robot.port=/dev/ttyACM1",
+        "--robot.id=follower",
         f"--dataset.repo_id={dataset_repo_id}",
         "--dataset.episode=0",
     ]
@@ -31,6 +28,11 @@ def _run_replay(position: int) -> tuple[bool, str | None]:
 
     detail = (result.stderr or result.stdout or "lerobot-replay failed").strip()
     return False, detail
+
+
+def _run_replay(position: int) -> tuple[bool, str | None]:
+    dataset_repo_id = f"kupac/pick_place_fixed0{position}"
+    return _run_dataset_replay(dataset_repo_id)
 
 
 async def run_robot_client() -> None:
