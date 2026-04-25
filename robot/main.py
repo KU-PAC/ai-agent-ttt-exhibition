@@ -20,6 +20,7 @@ def _run_dataset_replay(dataset_repo_id: str) -> tuple[bool, str | None]:
         "--robot.id=follower",
         f"--dataset.repo_id={dataset_repo_id}",
         "--dataset.episode=0",
+        "--play_sounds=false",
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
