@@ -174,15 +174,20 @@ async def _handle_request(websocket, config: VisionConfig) -> None:
             logging.warning("Board recognition failed: %s", exc)
             continue
 
+        board_to_send = board[::-1]
         response = {
             "type": RESPONSE_TYPE,
             "payload": {
-                "board": board,
+                "board": board_to_send,
             },
         }
         await websocket.send(json.dumps(response, ensure_ascii=False))
         elapsed_ms = (perf_counter() - started) * 1000.0
-        logging.info("Sent board_state_response in %.1f ms: %s", elapsed_ms, board)
+        logging.info(
+            "Sent board_state_response in %.1f ms: %s",
+            elapsed_ms,
+            board_to_send,
+        )
 
 
 async def run_vision_client(config: VisionConfig) -> None:
