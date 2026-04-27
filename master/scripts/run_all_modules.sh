@@ -27,7 +27,7 @@ wait_for_master_ready() {
       return 1
     fi
 
-    if (echo >"/dev/tcp/$HOST/$PORT") >/dev/null 2>&1; then
+    if ss -ltn "( sport = :$PORT )" 2>/dev/null | awk 'NR>1 {found=1} END {exit !found}'; then
       echo "[INFO] Master is ready on ws://${HOST}:${PORT}"
       return 0
     fi
