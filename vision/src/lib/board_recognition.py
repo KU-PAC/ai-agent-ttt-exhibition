@@ -17,6 +17,14 @@ Float64Array = npt.NDArray[np.float64]
 class BoardRecognitionError(RuntimeError):
     """Raised when board detection or perspective correction fails."""
 
+    def __init__(
+        self,
+        message: str,
+        debug_images: dict[str, UInt8Array] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.debug_images: dict[str, UInt8Array] = debug_images or {}
+
 
 @dataclass(frozen=True, slots=True)
 class BoardDetectionResult:
@@ -860,127 +868,144 @@ def _detect_board_geometry_with_debug(
     frame: UInt8Array,
 ) -> tuple[FloatArray, Float64Array, BoardDetectionDebug]:
     """Detect board corners and full grid vertices with debug artifacts."""
-    gray: UInt8Array = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    blurred: UInt8Array = cv2.GaussianBlur(gray, (5, 5), 0)
+    debug_images: dict[str, UInt8Array] = {}
 
-    binary: UInt8Array = cv2.adaptiveThreshold(
-        blurred,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV,
-        25,
-        8,
-    )
-    cleaned: UInt8Array = cv2.morphologyEx(
-        binary,
-        cv2.MORPH_CLOSE,
-        np.ones((5, 5), dtype=np.uint8),
-        iterations=1,
-    )
-    cleaned = _extract_largest_connected_component(cleaned)
+    try:
+        gray: UInt8Array = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        debug_images["gray"] = gray
+        blurred: UInt8Array = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    segments = _detect_line_segments(cleaned)
-    if len(segments) < 8:
-        msg: str = "Failed to detect enough board line segments."
-        raise BoardRecognitionError(msg)
+        binary: UInt8Array = cv2.adaptiveThreshold(
+            blurred,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV,
+            25,
+            8,
+        )
+        debug_images["binary"] = binary
 
-    raw_mask_a, raw_mask_b = _cluster_segment_families(segments)
+        cleaned: UInt8Array = cv2.morphologyEx(
+            binary,
+            cv2.MORPH_CLOSE,
+            np.ones((5, 5), dtype=np.uint8),
+            iterations=1,
+        )
+        cleaned = _extract_largest_connected_component(cleaned)
+        debug_images["cleaned"] = cleaned
 
-    support_segments = _select_support_segments(segments, raw_mask_a, raw_mask_b)
-    line_support_mask = _build_line_support_mask(cleaned.shape, support_segments)
+        segments = _detect_line_segments(cleaned)
+        if len(segments) < 8:
+            msg: str = "Failed to detect enough board line segments."
+            raise BoardRecognitionError(msg)
 
-    mask_a, mask_b = _cluster_segment_families(support_segments)
-    lines_a, weights_a = _build_family_lines(support_segments[mask_a])
-    lines_b, weights_b = _build_family_lines(support_segments[mask_b])
+        raw_mask_a, raw_mask_b = _cluster_segment_families(segments)
 
-    if len(lines_a) < GRID_LINE_COUNT or len(lines_b) < GRID_LINE_COUNT:
-        msg = "Insufficient reliable lines after directional clustering."
-        raise BoardRecognitionError(msg)
+        support_segments = _select_support_segments(segments, raw_mask_a, raw_mask_b)
+        line_support_mask = _build_line_support_mask(cleaned.shape, support_segments)
+        debug_images["line_support_mask"] = line_support_mask
 
-    vp_a = _fit_vanishing_point(lines_a, weights_a)
-    vp_b = _fit_vanishing_point(lines_b, weights_b)
+        mask_a, mask_b = _cluster_segment_families(support_segments)
+        lines_a, weights_a = _build_family_lines(support_segments[mask_a])
+        lines_b, weights_b = _build_family_lines(support_segments[mask_b])
 
-    frame_height: int
-    frame_width: int
-    frame_height, frame_width = frame.shape[:2]
-    frame_area = float(frame_width * frame_height)
-    frame_center = np.array([frame_width * 0.5, frame_height * 0.5], dtype=np.float64)
+        if len(lines_a) < GRID_LINE_COUNT or len(lines_b) < GRID_LINE_COUNT:
+            msg = "Insufficient reliable lines after directional clustering."
+            raise BoardRecognitionError(msg)
 
-    diagonal: float = float(np.hypot(frame_width, frame_height))
-    family_tolerance: float = max(4.0, 0.02 * diagonal)
+        vp_a = _fit_vanishing_point(lines_a, weights_a)
+        vp_b = _fit_vanishing_point(lines_b, weights_b)
 
-    line_sets_a = _build_line_family_candidates(
-        lines_a,
-        weights_a,
-        opposite_vp=vp_b,
-        frame_center=frame_center,
-        tolerance=family_tolerance,
-    )
-    line_sets_b = _build_line_family_candidates(
-        lines_b,
-        weights_b,
-        opposite_vp=vp_a,
-        frame_center=frame_center,
-        tolerance=family_tolerance,
-    )
+        frame_height: int
+        frame_width: int
+        frame_height, frame_width = frame.shape[:2]
+        frame_area = float(frame_width * frame_height)
+        frame_center = np.array(
+            [frame_width * 0.5, frame_height * 0.5],
+            dtype=np.float64,
+        )
 
-    best_score: float = -float("inf")
-    best_grid_points: Float64Array | None = None
-    best_corners: FloatArray | None = None
-    best_counts: Int32Array | None = None
-    best_flags: npt.NDArray[np.bool_] | None = None
+        diagonal: float = float(np.hypot(frame_width, frame_height))
+        family_tolerance: float = max(4.0, 0.02 * diagonal)
 
-    for lines4_a in line_sets_a:
-        for lines4_b in line_sets_b:
-            try:
-                candidate_grid = _build_grid_points(lines4_a, lines4_b)
-            except BoardRecognitionError:
-                continue
+        line_sets_a = _build_line_family_candidates(
+            lines_a,
+            weights_a,
+            opposite_vp=vp_b,
+            frame_center=frame_center,
+            tolerance=family_tolerance,
+        )
+        line_sets_b = _build_line_family_candidates(
+            lines_b,
+            weights_b,
+            opposite_vp=vp_a,
+            frame_center=frame_center,
+            tolerance=family_tolerance,
+        )
 
-            score, candidate_corners, candidate_counts, candidate_flags = (
-                _score_grid_candidate(
-                    line_support_mask,
-                    frame_area,
-                    candidate_grid,
-                    vp_a,
-                    vp_b,
+        best_score: float = -float("inf")
+        best_grid_points: Float64Array | None = None
+        best_corners: FloatArray | None = None
+        best_counts: Int32Array | None = None
+        best_flags: npt.NDArray[np.bool_] | None = None
+
+        for lines4_a in line_sets_a:
+            for lines4_b in line_sets_b:
+                try:
+                    candidate_grid = _build_grid_points(lines4_a, lines4_b)
+                except BoardRecognitionError:
+                    continue
+
+                score, candidate_corners, candidate_counts, candidate_flags = (
+                    _score_grid_candidate(
+                        line_support_mask,
+                        frame_area,
+                        candidate_grid,
+                        vp_a,
+                        vp_b,
+                    )
                 )
-            )
-            if score > best_score:
-                best_score = score
-                best_grid_points = candidate_grid
-                best_corners = candidate_corners
-                best_counts = candidate_counts
-                best_flags = candidate_flags
+                if score > best_score:
+                    best_score = score
+                    best_grid_points = candidate_grid
+                    best_corners = candidate_corners
+                    best_counts = candidate_counts
+                    best_flags = candidate_flags
 
-    if (
-        best_grid_points is None
-        or best_corners is None
-        or best_counts is None
-        or best_flags is None
-        or best_score == -float("inf")
-    ):
-        msg = "Failed to select a reliable 3x3 grid candidate."
-        raise BoardRecognitionError(msg)
+        if (
+            best_grid_points is None
+            or best_corners is None
+            or best_counts is None
+            or best_flags is None
+            or best_score == -float("inf")
+        ):
+            msg = "Failed to select a reliable 3x3 grid candidate."
+            raise BoardRecognitionError(msg)
 
-    overlay: UInt8Array = _build_grid_overlay(frame, segments, best_grid_points)
-    directions_overlay: UInt8Array = _build_vertex_direction_overlay(
-        frame,
-        best_grid_points,
-        best_counts,
-        best_flags,
-        vp_a,
-        vp_b,
-    )
-    debug = BoardDetectionDebug(
-        gray=gray,
-        binary=binary,
-        cleaned=cleaned,
-        line_support_mask=line_support_mask,
-        contours_overlay=overlay,
-        vertex_directions_overlay=directions_overlay,
-    )
-    return best_corners, best_grid_points, debug
+        overlay: UInt8Array = _build_grid_overlay(frame, segments, best_grid_points)
+        debug_images["contours_overlay"] = overlay
+        directions_overlay: UInt8Array = _build_vertex_direction_overlay(
+            frame,
+            best_grid_points,
+            best_counts,
+            best_flags,
+            vp_a,
+            vp_b,
+        )
+        debug_images["vertex_directions_overlay"] = directions_overlay
+        debug = BoardDetectionDebug(
+            gray=gray,
+            binary=binary,
+            cleaned=cleaned,
+            line_support_mask=line_support_mask,
+            contours_overlay=overlay,
+            vertex_directions_overlay=directions_overlay,
+        )
+        return best_corners, best_grid_points, debug
+    except BoardRecognitionError as exc:
+        merged_debug: dict[str, UInt8Array] = dict(debug_images)
+        merged_debug.update(exc.debug_images)
+        raise BoardRecognitionError(str(exc), debug_images=merged_debug) from exc
 
 
 def detect_board_corners_with_debug(

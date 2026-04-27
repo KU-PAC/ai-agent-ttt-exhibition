@@ -9,10 +9,14 @@ ROBOT_DIR="$REPO_ROOT/robot"
 
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8765}"
+POLL_INTERVAL="${MASTER_POLL_INTERVAL:-1.5}"
+VISION_MAX_RETRIES="${MASTER_VISION_MAX_RETRIES:-5}"
 
 export MASTER_HOST="$HOST"
 export MASTER_PORT="$PORT"
 export MASTER_URL="ws://${HOST}:${PORT}"
+export MASTER_POLL_INTERVAL="$POLL_INTERVAL"
+export MASTER_VISION_MAX_RETRIES="$VISION_MAX_RETRIES"
 
 MASTER_PID=""
 VISION_PID=""
@@ -68,6 +72,8 @@ trap cleanup EXIT INT TERM
 echo "[INFO] HOST=$HOST"
 echo "[INFO] PORT=$PORT"
 echo "[INFO] MASTER_URL=$MASTER_URL"
+echo "[INFO] MASTER_POLL_INTERVAL=$MASTER_POLL_INTERVAL"
+echo "[INFO] MASTER_VISION_MAX_RETRIES=$MASTER_VISION_MAX_RETRIES"
 echo "[INFO] Starting master module..."
 setsid bash -c "cd \"$MASTER_DIR\" && exec uv run python -m master" &
 MASTER_PID=$!
@@ -82,7 +88,11 @@ echo "[INFO] Starting robot module..."
 setsid bash -c "cd \"$ROBOT_DIR\" && exec uv run python main.py" &
 ROBOT_PID=$!
 
+echo "[INFO] Starting control module..."
 echo "[INFO] Modules started. Agent (Unity) is manual startup."
+echo "[INFO] Control client started. Press Enter in this terminal to send start/reset alternately."
 echo "[INFO] Press Ctrl+C to stop all modules."
 
-wait "$MASTER_PID" "$VISION_PID" "$ROBOT_PID"
+cd "$MASTER_DIR"
+uv run python scripts/control_client.py
+

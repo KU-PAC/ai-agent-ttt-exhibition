@@ -12,6 +12,7 @@ if str(PROJECT_SRC) not in sys.path:
     sys.path.insert(0, str(PROJECT_SRC))
 
 from lib.board_recognition import (
+    BoardRecognitionError,
     build_detection_visualization,
     detect_and_rectify_board_with_debug,
 )
@@ -84,13 +85,60 @@ def _write_debug_artifacts(frame, result, debug) -> None:
     )
 
 
+def _write_partial_debug_artifacts(
+    frame: np.ndarray,
+    error: BoardRecognitionError,
+) -> None:
+    output_dir: Path = _debug_output_dir()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    debug_image_paths: list[tuple[str, str]] = [
+        ("gray", "01_gray.jpg"),
+        ("binary", "02_binary.jpg"),
+        ("cleaned", "03_cleaned.jpg"),
+        ("line_support_mask", "04_line_support_mask.jpg"),
+        ("contours_overlay", "04_contours_overlay.jpg"),
+        ("vertex_directions_overlay", "05_vertex_directions_overlay.jpg"),
+    ]
+
+    saved_files: list[str] = []
+    for key, filename in debug_image_paths:
+        image = error.debug_images.get(key)
+        if image is None:
+            continue
+        if cv2.imwrite(str(output_dir / filename), image):
+            saved_files.append(filename)
+
+    cv2.imwrite(str(output_dir / "00_input_frame.jpg"), frame)
+
+    lines = [
+        "board_recognition_failure",
+        "",
+        f"error: {error}",
+        "saved_debug_images:",
+    ]
+    if saved_files:
+        lines.extend(f"  - {name}" for name in saved_files)
+    else:
+        lines.append("  - (none)")
+
+    (output_dir / "08_board_recognition_failure.txt").write_text(
+        "\n".join(lines) + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_detect_and_rectify_board_with_sample_image() -> None:
     image_path: Path = _sample_image_path()
     frame = cv2.imread(str(image_path))
 
     assert frame is not None
 
-    result, debug = detect_and_rectify_board_with_debug(frame)
+    try:
+        result, debug = detect_and_rectify_board_with_debug(frame)
+    except BoardRecognitionError as exc:
+        _write_partial_debug_artifacts(frame, exc)
+        raise
 
     assert result.warped.shape[0] == 300
     assert result.warped.shape[1] == 300

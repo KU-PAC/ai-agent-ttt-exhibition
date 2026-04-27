@@ -16,7 +16,7 @@ def _run_dataset_replay(dataset_repo_id: str) -> tuple[bool, str | None]:
     cmd = [
         "lerobot-replay",
         "--robot.type=so101_follower",
-        "--robot.port=/dev/ttyACM1",
+        "--robot.port=/dev/ttyACM0",
         "--robot.id=follower",
         f"--dataset.repo_id={dataset_repo_id}",
         "--dataset.episode=0",
