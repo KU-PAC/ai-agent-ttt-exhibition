@@ -107,6 +107,146 @@ def _segment_lengths(segments: Int32Array) -> Float64Array:
     return np.hypot(delta[:, 0], delta[:, 1])
 
 
+def _build_line_detection_mask(cleaned: UInt8Array, gray: UInt8Array) -> UInt8Array:
+    """Build a line-friendly mask that keeps thick shadow-fused borders."""
+    height: int
+    width: int
+    height, width = cleaned.shape
+    base: int = min(width, height)
+
+    region_kernel_size = max(3, int(round(base * 0.03)))
+    if region_kernel_size % 2 == 0:
+        region_kernel_size += 1
+    region_kernel = np.ones((region_kernel_size, region_kernel_size), dtype=np.uint8)
+    board_region = cv2.dilate(cleaned, region_kernel, iterations=1)
+
+    median = float(np.median(gray))
+    lower = int(max(10.0, 0.66 * median))
+    upper = int(min(255.0, max(lower + 20.0, 1.33 * median)))
+    edges = cv2.Canny(gray, lower, upper, L2gradient=True)
+    edges = cv2.bitwise_and(edges, board_region)
+
+    edge_close_kernel_size = max(3, int(round(base * 0.01)))
+    if edge_close_kernel_size % 2 == 0:
+        edge_close_kernel_size += 1
+    edge_close_kernel = np.ones(
+        (edge_close_kernel_size, edge_close_kernel_size),
+        dtype=np.uint8,
+    )
+    edges = cv2.morphologyEx(
+        edges,
+        cv2.MORPH_CLOSE,
+        edge_close_kernel,
+        iterations=1,
+    )
+
+    combined = cv2.bitwise_or(cleaned, edges)
+    final_close_kernel_size = max(3, int(round(base * 0.012)))
+    if final_close_kernel_size % 2 == 0:
+        final_close_kernel_size += 1
+    final_close_kernel = np.ones(
+        (final_close_kernel_size, final_close_kernel_size),
+        dtype=np.uint8,
+    )
+    return cv2.morphologyEx(
+        combined,
+        cv2.MORPH_CLOSE,
+        final_close_kernel,
+        iterations=1,
+    )
+
+
+def _family_offset_parameters(segments: Int32Array) -> Float64Array:
+    """Project segment midpoints onto a family normal to estimate line offsets."""
+    dx = segments[:, 2].astype(np.float64) - segments[:, 0].astype(np.float64)
+    dy = segments[:, 3].astype(np.float64) - segments[:, 1].astype(np.float64)
+    lengths = np.hypot(dx, dy)
+    valid = lengths > 1e-6
+
+    if not bool(np.any(valid)):
+        return np.zeros(len(segments), dtype=np.float64)
+
+    angles = np.mod(np.arctan2(dy[valid], dx[valid]), np.pi)
+    weights = lengths[valid]
+    sin2 = np.sum(np.sin(2.0 * angles) * weights)
+    cos2 = np.sum(np.cos(2.0 * angles) * weights)
+    theta = 0.5 * np.arctan2(sin2, cos2)
+
+    direction = np.array([np.cos(theta), np.sin(theta)], dtype=np.float64)
+    normal = np.array([-direction[1], direction[0]], dtype=np.float64)
+
+    midpoints = np.column_stack(
+        [
+            (segments[:, 0].astype(np.float64) + segments[:, 2].astype(np.float64))
+            * 0.5,
+            (segments[:, 1].astype(np.float64) + segments[:, 3].astype(np.float64))
+            * 0.5,
+        ]
+    )
+    return midpoints @ normal
+
+
+def _cover_offsets_with_representatives(
+    segments: Int32Array,
+    lengths: Float64Array,
+    selected_mask: npt.NDArray[np.bool_],
+) -> npt.NDArray[np.bool_]:
+    """Ensure support segments cover the full offset range in one direction family."""
+    if len(segments) <= GRID_LINE_COUNT:
+        return selected_mask
+
+    offsets = _family_offset_parameters(segments)
+    edges = np.quantile(offsets, np.linspace(0.0, 1.0, GRID_LINE_COUNT + 1))
+
+    covered = selected_mask.copy()
+    for idx in range(GRID_LINE_COUNT):
+        lo = float(edges[idx])
+        hi = float(edges[idx + 1])
+        if idx == GRID_LINE_COUNT - 1:
+            in_bin = (offsets >= lo) & (offsets <= hi)
+        else:
+            in_bin = (offsets >= lo) & (offsets < hi)
+        if not bool(np.any(in_bin)):
+            continue
+
+        best_local = int(np.argmax(np.where(in_bin, lengths, -1.0)))
+        covered[best_local] = True
+
+    return covered
+
+
+def _limit_selected_segments(
+    lengths: Float64Array,
+    selected_mask: npt.NDArray[np.bool_],
+    max_count: int,
+    required_mask: npt.NDArray[np.bool_],
+) -> npt.NDArray[np.bool_]:
+    """Cap selected segments while preserving required representatives."""
+    selected_indices = np.where(selected_mask)[0]
+    if len(selected_indices) <= max_count:
+        return selected_mask
+
+    limited = np.zeros_like(selected_mask)
+    required_indices = np.where(required_mask)[0]
+    limited[required_indices] = True
+
+    remaining = np.setdiff1d(selected_indices, required_indices, assume_unique=False)
+    if len(np.where(limited)[0]) >= max_count:
+        if len(required_indices) > max_count:
+            keep_required = required_indices[
+                np.argsort(lengths[required_indices])[-max_count:]
+            ]
+            limited = np.zeros_like(selected_mask)
+            limited[keep_required] = True
+        return limited
+
+    remaining_budget = max_count - int(np.count_nonzero(limited))
+    if remaining_budget > 0 and len(remaining) > 0:
+        top_remaining = remaining[np.argsort(lengths[remaining])[-remaining_budget:]]
+        limited[top_remaining] = True
+    return limited
+
+
 def _detect_line_segments(mask: UInt8Array) -> Int32Array:
     """Detect candidate board line segments from a binary mask."""
     frame_height: int
@@ -114,21 +254,46 @@ def _detect_line_segments(mask: UInt8Array) -> Int32Array:
     frame_height, frame_width = mask.shape
     base: int = min(frame_width, frame_height)
 
-    threshold: int = max(24, int(base * 0.07))
-    min_line_length: int = max(20, int(base * 0.12))
-    max_line_gap: int = max(8, int(base * 0.04))
-
-    lines = cv2.HoughLinesP(
-        mask,
-        rho=1,
-        theta=np.pi / 180.0,
-        threshold=threshold,
-        minLineLength=min_line_length,
-        maxLineGap=max_line_gap,
+    parameter_sets: tuple[tuple[int, int, int], ...] = (
+        (
+            max(20, int(base * 0.055)),
+            max(18, int(base * 0.10)),
+            max(10, int(base * 0.05)),
+        ),
+        (
+            max(14, int(base * 0.04)),
+            max(14, int(base * 0.075)),
+            max(12, int(base * 0.07)),
+        ),
     )
-    if lines is None:
+
+    collected: list[Int32Array] = []
+    for threshold, min_line_length, max_line_gap in parameter_sets:
+        lines = cv2.HoughLinesP(
+            mask,
+            rho=1,
+            theta=np.pi / 180.0,
+            threshold=threshold,
+            minLineLength=min_line_length,
+            maxLineGap=max_line_gap,
+        )
+        if lines is None:
+            continue
+        collected.append(lines.reshape(-1, 4).astype(np.int32))
+
+    if not collected:
         return np.empty((0, 4), dtype=np.int32)
-    return lines.reshape(-1, 4).astype(np.int32)
+
+    merged = np.concatenate(collected, axis=0)
+    a = merged[:, 0:2]
+    b = merged[:, 2:4]
+    swap = (a[:, 0] > b[:, 0]) | ((a[:, 0] == b[:, 0]) & (a[:, 1] > b[:, 1]))
+    canonical = merged.copy()
+    canonical[swap, 0:2] = merged[swap, 2:4]
+    canonical[swap, 2:4] = merged[swap, 0:2]
+
+    unique_segments = np.unique(canonical, axis=0)
+    return unique_segments.astype(np.int32)
 
 
 def _build_line_support_mask(
@@ -182,8 +347,8 @@ def _select_support_segments(
             selected_families.append(family_segments)
             continue
 
-        percentile_floor = float(np.percentile(lengths, 55.0))
-        relative_floor = float(np.max(lengths) * 0.35)
+        percentile_floor = float(np.percentile(lengths, 40.0))
+        relative_floor = float(np.max(lengths) * 0.22)
         length_floor = max(percentile_floor, relative_floor)
         keep = lengths >= length_floor
 
@@ -193,11 +358,20 @@ def _select_support_segments(
             keep = np.zeros(len(family_segments), dtype=bool)
             keep[top_idx] = True
 
+        coverage_required = _cover_offsets_with_representatives(
+            family_segments,
+            lengths,
+            np.zeros(len(family_segments), dtype=bool),
+        )
+        keep = _cover_offsets_with_representatives(family_segments, lengths, keep)
+        keep = _limit_selected_segments(
+            lengths,
+            keep,
+            max_count=36,
+            required_mask=coverage_required,
+        )
+
         selected = family_segments[keep]
-        if len(selected) > 24:
-            selected_lengths = _segment_lengths(selected)
-            top_idx = np.argsort(selected_lengths)[-24:]
-            selected = selected[top_idx]
 
         selected_families.append(selected)
 
@@ -205,7 +379,7 @@ def _select_support_segments(
         return segments
 
     selected_segments = np.concatenate(selected_families, axis=0).astype(np.int32)
-    if len(selected_segments) < 8:
+    if len(selected_segments) < 12:
         return segments
     return selected_segments
 
@@ -309,6 +483,33 @@ def _fit_vanishing_point(lines: Float64Array, weights: Float64Array) -> Float64A
             raise BoardRecognitionError(msg)
 
     return vp
+
+
+def _fit_vanishing_point_with_fallback(
+    lines: Float64Array,
+    weights: Float64Array,
+    frame_center: Float64Array,
+    diagonal: float,
+) -> Float64Array:
+    """Estimate VP and fall back to a far point when families are near-parallel."""
+    try:
+        return _fit_vanishing_point(lines, weights)
+    except BoardRecognitionError:
+        weighted_normals = lines[:, :2] * np.maximum(weights, 1e-6).reshape(-1, 1)
+        normal = np.sum(weighted_normals, axis=0)
+        normal_norm = float(np.hypot(normal[0], normal[1]))
+        if normal_norm <= 1e-9:
+            normal = lines[0, :2].copy()
+            normal_norm = float(np.hypot(normal[0], normal[1]))
+            if normal_norm <= 1e-9:
+                msg = "Vanishing point estimation failed and fallback direction is invalid."
+                raise BoardRecognitionError(msg)
+
+        normal = normal / normal_norm
+        direction = np.array([-normal[1], normal[0]], dtype=np.float64)
+        fallback_distance = max(3.0 * diagonal, 800.0)
+        vp_xy = frame_center + (direction * fallback_distance)
+        return np.array([float(vp_xy[0]), float(vp_xy[1]), 1.0], dtype=np.float64)
 
 
 def _line_intersection(line_a: Float64Array, line_b: Float64Array) -> Float64Array:
@@ -894,7 +1095,8 @@ def _detect_board_geometry_with_debug(
         cleaned = _extract_largest_connected_component(cleaned)
         debug_images["cleaned"] = cleaned
 
-        segments = _detect_line_segments(cleaned)
+        line_detection_mask = _build_line_detection_mask(cleaned, gray)
+        segments = _detect_line_segments(line_detection_mask)
         if len(segments) < 8:
             msg: str = "Failed to detect enough board line segments."
             raise BoardRecognitionError(msg)
@@ -913,9 +1115,6 @@ def _detect_board_geometry_with_debug(
             msg = "Insufficient reliable lines after directional clustering."
             raise BoardRecognitionError(msg)
 
-        vp_a = _fit_vanishing_point(lines_a, weights_a)
-        vp_b = _fit_vanishing_point(lines_b, weights_b)
-
         frame_height: int
         frame_width: int
         frame_height, frame_width = frame.shape[:2]
@@ -926,6 +1125,19 @@ def _detect_board_geometry_with_debug(
         )
 
         diagonal: float = float(np.hypot(frame_width, frame_height))
+        vp_a = _fit_vanishing_point_with_fallback(
+            lines_a,
+            weights_a,
+            frame_center=frame_center,
+            diagonal=diagonal,
+        )
+        vp_b = _fit_vanishing_point_with_fallback(
+            lines_b,
+            weights_b,
+            frame_center=frame_center,
+            diagonal=diagonal,
+        )
+
         family_tolerance: float = max(4.0, 0.02 * diagonal)
 
         line_sets_a = _build_line_family_candidates(
