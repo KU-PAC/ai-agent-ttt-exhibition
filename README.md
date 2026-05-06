@@ -12,7 +12,7 @@
 | Role / Directory | Member | Links |
 | :--- | :--- | :--- |
 | **PM, vision/** | 大澤 衡正 | [GitHub](https://github.com/OsawaKousei) |
-| **agent/** | 平塚 謙良 | - |
+| **agent/** | 平塚 謙良 | [GitHub](https://github.com/Azuma413) |
 | **master/** | 岡本 晃朋 | [GitHub](https://github.com/Tps-F) / [Portfolio](https://tps-f.github.io/portfolio/) |
 | **models/** | 荻野 瑛穂 | - |
 | **robot/** | 横井 亮太 | [GitHub](https://github.com/oyokoi451) |
